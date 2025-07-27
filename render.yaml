@@ -1,0 +1,64 @@
+services:
+  # Database
+  - type: pserv
+    name: escashop-database
+    env: docker
+    plan: free
+    dockerfilePath: ./database/Dockerfile
+    
+  # Backend API
+  - type: web
+    name: escashop-backend
+    env: node
+    plan: free
+    buildCommand: cd backend && npm ci && npm run build
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: escashop-database
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET  
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://escashop-frontend.onrender.com
+      - key: SMS_PROVIDER
+        value: vonage
+      - key: SMS_ENABLED
+        value: true
+      - key: VONAGE_API_KEY
+        value: 24580886
+      - key: VONAGE_API_SECRET
+        value: 0YSON3xZYOEWYLyf
+      - key: EMAIL_SERVICE_ENABLED
+        value: true
+      - key: EMAIL_SERVICE
+        value: gmail
+      - key: EMAIL_USER
+        value: jefor16@gmail.com
+      - key: EMAIL_PASSWORD
+        value: cutbcijqacobypak
+
+  # Frontend
+  - type: web
+    name: escashop-frontend
+    env: static
+    plan: free
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: frontend/build
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://escashop-backend.onrender.com
+
+databases:
+  - name: escashop-database
+    databaseName: escashop
+    user: escashop_user
+    plan: free

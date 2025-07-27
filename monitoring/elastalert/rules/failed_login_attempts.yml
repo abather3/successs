@@ -1,0 +1,53 @@
+name: Failed Login Attempts
+type: frequency
+index: escashop-application-*
+num_events: 5
+timeframe:
+  minutes: 10
+
+filter:
+  - query:
+      query_string:
+        query: "tags:auth_event AND (message:*failed* OR message:*unauthorized* OR message:*invalid*)"
+
+alert:
+  - "email"
+  - "slack"
+
+email:
+  - "security@escashop.com"
+
+slack:
+  slack_webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+  slack_channel_override: "#security-alerts"
+  slack_username_override: "Security Monitor"
+
+alert_text: |
+  Multiple failed login attempts detected
+  
+  Failed attempts: {0}
+  Time window: {1}
+  
+  Source IPs:
+  {2}
+  
+  This could indicate a brute force attack.
+
+alert_text_args:
+  - num_matches
+  - timeframe
+  - top_count_keys
+
+include:
+  - client_ip
+  - user_agent
+  - timestamp
+  - message
+  - username
+
+top_count_keys:
+  - client_ip
+  - user_agent
+
+realert:
+  minutes: 15

@@ -1,0 +1,177 @@
+{
+  "consumer": {
+    "name": "FrontendClient"
+  },
+  "interactions": [
+    {
+      "description": "a login request with valid credentials",
+      "providerState": "user exists with valid credentials",
+      "request": {
+        "body": {
+          "email": "test@example.com",
+          "password": "password123"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/api/auth/login"
+      },
+      "response": {
+        "body": {
+          "accessToken": "jwt.access.token",
+          "refreshToken": "jwt.refresh.token",
+          "user": {
+            "email": "user@example.com",
+            "full_name": "John Doe",
+            "id": 1,
+            "role": "cashier",
+            "status": "active"
+          }
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "$.body.accessToken": {
+            "match": "type"
+          },
+          "$.body.refreshToken": {
+            "match": "type"
+          },
+          "$.body.user.email": {
+            "match": "type"
+          },
+          "$.body.user.full_name": {
+            "match": "type"
+          },
+          "$.body.user.id": {
+            "match": "type"
+          },
+          "$.body.user.role": {
+            "match": "type"
+          },
+          "$.body.user.status": {
+            "match": "type"
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a request for current queue",
+      "providerState": "queue has customers waiting",
+      "request": {
+        "headers": {
+          "Authorization": "Bearer validtoken"
+        },
+        "matchingRules": {
+          "$.header.Authorization": {
+            "match": "regex",
+            "regex": "^Bearer .+$"
+          }
+        },
+        "method": "GET",
+        "path": "/api/queue"
+      },
+      "response": {
+        "body": [
+          {
+            "created_at": "2024-01-01T10:00:00.000Z",
+            "estimated_wait_time": 15,
+            "id": 1,
+            "name": "John Doe",
+            "position": 1,
+            "priority_flags": {
+              "pregnant": false,
+              "pwd": false,
+              "senior_citizen": false
+            },
+            "queue_status": "waiting"
+          }
+        ],
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type",
+            "min": 1
+          },
+          "$.body[*].created_at": {
+            "match": "type"
+          },
+          "$.body[*].estimated_wait_time": {
+            "match": "type"
+          },
+          "$.body[*].id": {
+            "match": "type"
+          },
+          "$.body[*].name": {
+            "match": "type"
+          },
+          "$.body[*].position": {
+            "match": "type"
+          },
+          "$.body[*].priority_flags": {
+            "match": "type"
+          },
+          "$.body[*].queue_status": {
+            "match": "type"
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a request to call next customer from empty queue",
+      "providerState": "queue is empty",
+      "request": {
+        "body": {
+          "counterId": 1
+        },
+        "headers": {
+          "Authorization": "Bearer validtoken",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "$.header.Authorization": {
+            "match": "regex",
+            "regex": "^Bearer .+$"
+          }
+        },
+        "method": "POST",
+        "path": "/api/queue/call-next"
+      },
+      "response": {
+        "body": {
+          "error": "No customers in queue"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "$.body.error": {
+            "match": "type"
+          }
+        },
+        "status": 404
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "13.2.0"
+    },
+    "pactRust": {
+      "ffi": "0.4.22",
+      "models": "1.2.3"
+    },
+    "pactSpecification": {
+      "version": "2.0.0"
+    }
+  },
+  "provider": {
+    "name": "EscaShopBackend"
+  }
+}

@@ -1,0 +1,704 @@
+openapi: 3.0.3
+info:
+  title: EscaShop Queue Management API
+  version: "3.1.0"
+  description: |
+    EscaShop Queue Management System API for managing customer queues, status transitions, and real-time updates.
+    
+    **Version 3.1.0 Changes (Blue/Green Deployment Ready):**
+    - Enhanced 'processing' status support with backward compatibility
+    - Blue/Green deployment strategy with zero-downtime updates
+    - Forward-compatible database migrations
+    - Non-breaking enum value additions
+    - Rollback-safe API design
+    
+    **Deployment Strategy:**
+    This API is designed for Blue/Green deployments with:
+    - Database migrations applied before backend deployment
+    - Backward-compatible enum values
+    - Feature flags for UI rollbacks
+    - Health check endpoints for monitoring
+    
+    **Forward Compatibility Note:**
+    Clients should ignore unknown future statuses to maintain compatibility with future API versions.
+  contact:
+    name: EscaShop Development Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5000/api
+    description: Development server
+  - url: https://api.escashop.com/api
+    description: Production server
+
+paths:
+  /queue:
+    get:
+      summary: Get queue with optional status filtering
+      description: |
+        Retrieve current queue items with optional filtering by status.
+        
+        **v1.1 Enhancement:** Added support for `status` query parameter to filter results.
+        
+        **Examples:**
+        - `GET /api/queue` - Returns all queue items
+        - `GET /api/queue?status=processing` - Returns only processing customers
+        - `GET /api/queue?status=waiting` - Returns only waiting customers
+      tags:
+        - Queue Management
+      parameters:
+        - name: status
+          in: query
+          description: Filter queue items by status
+          required: false
+          schema:
+            $ref: '#/components/schemas/QueueStatus'
+          example: processing
+      responses:
+        '200':
+          description: Successfully retrieved queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QueueItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /queue/{id}/status:
+    patch:
+      summary: Update queue status (v1.1)
+      description: |
+        Update the status of a specific customer in the queue. This endpoint is designed
+        primarily for setting customers to 'processing' status but supports all valid
+        status transitions.
+        
+        **API v1.1 Feature:** This endpoint specifically supports the 'processing' status
+        as part of the enhanced queue workflow for customers whose orders are being prepared.
+        
+        **Forward Compatibility:** Clients should ignore unknown future statuses for 
+        forward compatibility with future API versions.
+        
+        **Valid Status Transitions:**
+        - waiting → serving
+        - waiting → cancelled  
+        - serving → processing
+        - serving → completed
+        - serving → cancelled
+        - processing → completed
+        - processing → cancelled
+      tags:
+        - Queue Management
+      parameters:
+        - name: id
+          in: path
+          description: Customer ID
+          required: true
+          schema:
+            type: integer
+          example: 123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  $ref: '#/components/schemas/QueueStatus'
+                  description: Target status for the customer
+                  example: processing
+              required:
+                - status
+            examples:
+              processing:
+                summary: Set customer to processing
+                value:
+                  status: processing
+              completed:
+                summary: Mark customer as completed
+                value:
+                  status: completed
+      responses:
+        '200':
+          description: Status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          description: Invalid status or transition
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid status transition: waiting → completed"
+                  note:
+                    type: string
+                    example: "Clients should ignore unknown future statuses for forward compatibility"
+        '404':
+          description: Customer not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /queue/change-status:
+    post:
+      summary: Change customer status (Legacy)
+      description: |
+        **DEPRECATED:** Use PATCH /queue/{id}/status instead.
+        
+        Legacy endpoint for changing customer status. Maintained for backward compatibility.
+      deprecated: true
+      tags:
+        - Queue Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerId:
+                  type: integer
+                  example: 123
+                status:
+                  $ref: '#/components/schemas/QueueStatus'
+              required:
+                - customerId
+                - status
+      responses:
+        '200':
+          description: Status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  # Export Management Endpoints
+  /customers/{id}/export/excel:
+    get:
+      summary: Export single customer to Excel
+      description: |
+        Export a single customer's data to Excel format (.xlsx).
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number are now positioned side by side (columns 19-20) for better data visualization and analysis.
+        
+        **Export Structure:**
+        - Columns 1-18: Basic customer information
+        - Column 19: **Payment Amount** (Currency format with ₱ symbol)
+        - Column 20: **OR Number** (Text format) 
+        - Columns 21+: Additional customer details
+      tags:
+        - Data Export
+      parameters:
+        - name: id
+          in: path
+          description: Customer ID to export
+          required: true
+          schema:
+            type: integer
+          example: 123
+      responses:
+        '200':
+          description: Excel file generated successfully
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Attachment filename
+              schema:
+                type: string
+                example: "attachment; filename=customer_123_export.xlsx"
+        '404':
+          description: Customer not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /customers/{id}/export/pdf:
+    get:
+      summary: Export single customer to PDF
+      description: |
+        Export a single customer's data to PDF format.
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number are prominently displayed with enhanced formatting for better visibility.
+      tags:
+        - Data Export
+      parameters:
+        - name: id
+          in: path
+          description: Customer ID to export
+          required: true
+          schema:
+            type: integer
+          example: 123
+      responses:
+        '200':
+          description: PDF file generated successfully
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Attachment filename
+              schema:
+                type: string
+                example: "attachment; filename=customer_123_export.pdf"
+        '404':
+          description: Customer not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /customers/{id}/export/sheets:
+    post:
+      summary: Export single customer to Google Sheets
+      description: |
+        Export a single customer's data to Google Sheets via API integration.
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number are configured side by side with proper formatting - Payment Amount as currency, OR Number as text.
+      tags:
+        - Data Export
+      parameters:
+        - name: id
+          in: path
+          description: Customer ID to export
+          required: true
+          schema:
+            type: integer
+          example: 123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spreadsheetId:
+                  type: string
+                  description: Google Sheets spreadsheet ID
+                  example: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                sheetName:
+                  type: string
+                  description: Sheet name within the spreadsheet
+                  example: "Customer Data"
+              required:
+                - spreadsheetId
+      responses:
+        '200':
+          description: Data exported to Google Sheets successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  spreadsheetUrl:
+                    type: string
+                    format: uri
+        '404':
+          description: Customer not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /export/excel:
+    post:
+      summary: Export multiple customers to Excel
+      description: |
+        Export multiple customers' data to Excel format (.xlsx).
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number are positioned side by side (columns 19-20) across all customer records for consistent data analysis.
+      tags:
+        - Data Export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerIds:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of customer IDs to export
+                  example: [123, 124, 125]
+                filters:
+                  type: object
+                  description: Optional filters for customer selection
+                  properties:
+                    status:
+                      $ref: '#/components/schemas/QueueStatus'
+                    dateRange:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: date
+                        end:
+                          type: string
+                          format: date
+      responses:
+        '200':
+          description: Excel file with multiple customers generated successfully
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Attachment filename
+              schema:
+                type: string
+                example: "attachment; filename=customers_export.xlsx"
+        '400':
+          description: Invalid request body or no customers found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /export/pdf:
+    post:
+      summary: Export multiple customers to PDF
+      description: |
+        Export multiple customers' data to PDF format in table layout.
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number are positioned adjacently in the table for easy comparison and analysis.
+      tags:
+        - Data Export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerIds:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of customer IDs to export
+                  example: [123, 124, 125]
+                filters:
+                  type: object
+                  description: Optional filters for customer selection
+                  properties:
+                    status:
+                      $ref: '#/components/schemas/QueueStatus'
+                    dateRange:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: date
+                        end:
+                          type: string
+                          format: date
+      responses:
+        '200':
+          description: PDF file with multiple customers generated successfully
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Attachment filename
+              schema:
+                type: string
+                example: "attachment; filename=customers_export.pdf"
+        '400':
+          description: Invalid request body or no customers found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /export/sheets:
+    post:
+      summary: Export multiple customers to Google Sheets
+      description: |
+        Export multiple customers' data to Google Sheets via API integration.
+        
+        **Field Order Update (v3.1):** Payment Amount and OR Number columns are configured with proper formatting and positioned side by side for optimal data organization.
+      tags:
+        - Data Export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerIds:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of customer IDs to export
+                  example: [123, 124, 125]
+                spreadsheetId:
+                  type: string
+                  description: Google Sheets spreadsheet ID
+                  example: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                sheetName:
+                  type: string
+                  description: Sheet name within the spreadsheet
+                  example: "Customer Data"
+                filters:
+                  type: object
+                  description: Optional filters for customer selection
+                  properties:
+                    status:
+                      $ref: '#/components/schemas/QueueStatus'
+                    dateRange:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: date
+                        end:
+                          type: string
+                          format: date
+              required:
+                - spreadsheetId
+      responses:
+        '200':
+          description: Data exported to Google Sheets successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  spreadsheetUrl:
+                    type: string
+                    format: uri
+                  recordCount:
+                    type: integer
+                    description: Number of customers exported
+        '400':
+          description: Invalid request body or no customers found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+components:
+  schemas:
+    QueueStatus:
+      type: string
+      enum:
+        - waiting
+        - serving
+        - processing
+        - completed
+        - cancelled
+      description: |
+        Queue status enumeration.
+        
+        **v1.1 Addition:** Added 'processing' status for enhanced workflow support.
+        
+        **Status Descriptions:**
+        - `waiting`: Customer is in queue waiting to be called
+        - `serving`: Customer is currently being served at a counter
+        - `processing`: Customer's order is being prepared/processed (v1.1)
+        - `completed`: Customer service has been completed
+        - `cancelled`: Customer service was cancelled
+        
+        **Forward Compatibility Note:** Clients should gracefully handle and ignore
+        any unknown status values that may be added in future API versions.
+      example: processing
+
+    QueueItem:
+      type: object
+      properties:
+        customer_id:
+          type: integer
+          description: Unique customer identifier
+        customer:
+          $ref: '#/components/schemas/Customer'
+        position:
+          type: integer
+          description: Current position in queue
+        priority_score:
+          type: integer
+          description: Calculated priority score
+        estimated_wait_time:
+          type: integer
+          description: Estimated wait time in minutes
+      required:
+        - customer_id
+        - customer
+        - position
+        - priority_score
+        - estimated_wait_time
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        queue_status:
+          $ref: '#/components/schemas/QueueStatus'
+        token_number:
+          type: integer
+        contact_number:
+          type: string
+        priority_flags:
+          $ref: '#/components/schemas/PriorityFlags'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - queue_status
+
+    PriorityFlags:
+      type: object
+      properties:
+        senior_citizen:
+          type: boolean
+        pregnant:
+          type: boolean
+        pwd:
+          type: boolean
+      description: Priority flags for queue positioning
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid input
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              note:
+                type: string
+                description: Forward compatibility guidance
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Authentication required"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal server error"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+tags:
+  - name: Queue Management
+    description: |
+      Queue management operations including status updates, filtering, and real-time monitoring.
+      
+      **v1.1 Features:**
+      - Enhanced status filtering
+      - Processing status support
+      - Improved status transition validation
+      - Forward compatibility design
+  - name: Data Export
+    description: |
+      Data export operations supporting multiple formats (Excel, PDF, Google Sheets).
+      
+      **v3.1 Field Order Update:**
+      - Payment Amount and OR Number positioned side by side (columns 19-20)
+      - Enhanced formatting for financial data visibility
+      - Consistent field arrangement across all export formats
+      - Optimized for data analysis and reporting
+
+x-api-version: "3.1"
+x-changelog:
+  - version: "3.1"
+    date: "2025-07-22"
+    changes:
+      - "Updated export field order: Payment Amount and OR Number now side by side (columns 19-20)"
+      - "Added comprehensive export API documentation for all formats"
+      - "Enhanced export structure for better data analysis"
+      - "Improved field formatting in Excel, PDF, and Google Sheets exports"
+      - "Added detailed export endpoint specifications with field order details"
+  - version: "1.1"
+    date: "2025-01-21"
+    changes:
+      - "Added support for 'processing' status in queue workflows"
+      - "Added PATCH /queue/{id}/status endpoint for status updates"
+      - "Enhanced GET /queue with status filtering support"
+      - "Added forward compatibility guidance for unknown status values"
+      - "Improved status transition validation"
+      - "Deprecated POST /queue/change-status in favor of PATCH endpoint"

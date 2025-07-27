@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-escashop}
+      POSTGRES_USER: ${DATABASE_USER:-escashop_user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secure_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+      - escashop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-escashop_user} -d ${DATABASE_NAME:-escashop}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Database Migration Service (runs once)
+  migration:
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    container_name: escashop-migration
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DATABASE_USER:-escashop_user}:${DATABASE_PASSWORD:-secure_password}@postgres:5432/${DATABASE_NAME:-escashop}
+      MIGRATION_TIMEOUT: 300000  # 5 minutes
+      HOSTNAME: escashop-migration-${RANDOM:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - escashop-network
+    volumes:
+      - ./database:/app/database:ro
+      - ./backend/src:/app/backend/src:ro
+    restart: "no"  # Migration should only run once
+    command: ["npm", "run", "migrate:docker"]
+
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: escashop-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: postgresql://${DATABASE_USER:-escashop_user}:${DATABASE_PASSWORD:-secure_password}@postgres:5432/${DATABASE_NAME:-escashop}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SMS_PROVIDER: ${SMS_PROVIDER:-vonage}
+      SMS_ENABLED: ${SMS_ENABLED:-true}
+      VONAGE_API_KEY: ${VONAGE_API_KEY}
+      VONAGE_API_SECRET: ${VONAGE_API_SECRET}
+      EMAIL_SERVICE_ENABLED: ${EMAIL_SERVICE_ENABLED:-true}
+      EMAIL_SERVICE: ${EMAIL_SERVICE:-gmail}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    networks:
+      - escashop-network
+    volumes:
+      - ./backend/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: escashop-frontend
+    restart: unless-stopped
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000}
+      REACT_APP_WEBSOCKET_URL: ${REACT_APP_WEBSOCKET_URL:-ws://localhost:5000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - escashop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis Cache (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: escashop-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - escashop-network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx Reverse Proxy (Optional)
+  nginx:
+    image: nginx:alpine
+    container_name: escashop-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - escashop-network
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  escashop-network:
+    driver: bridge

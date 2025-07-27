@@ -1,0 +1,91 @@
+import { Pact, Interaction, Matchers } from '@pact-foundation/pact';
+import axios from 'axios';
+import path from 'path';
+
+const { like } = Matchers;
+
+describe('Working Contract Test Demo', () => {
+  let provider: Pact;
+
+  beforeAll(async () => {
+    provider = new Pact({
+      consumer: 'FrontendClient',
+      provider: 'EscaShopBackend',
+      port: 3234, // Use different port
+      log: path.resolve(process.cwd(), 'logs', 'pact.log'),
+      dir: path.resolve(process.cwd(), 'pacts'),
+      spec: 2,
+      logLevel: 'INFO'
+    });
+
+    await provider.setup();
+  });
+
+  afterAll(async () => {
+    await provider.finalize();
+  });
+
+  describe('Authentication Contract', () => {
+    it('should successfully define and test login endpoint contract', async () => {
+      const loginRequest = {
+        email: 'test@example.com',
+        password: 'password123'
+      };
+
+      const expectedResponse = {
+        user: {
+          id: like(1),
+          email: like('user@example.com'),
+          full_name: like('John Doe'),
+          role: like('cashier'),
+          status: like('active')
+        },
+        accessToken: like('jwt.access.token'),
+        refreshToken: like('jwt.refresh.token')
+      };
+
+      const interaction: Interaction = {
+        state: 'user exists with valid credentials',
+        uponReceiving: 'a login request with valid credentials',
+        withRequest: {
+          method: 'POST',
+          path: '/api/auth/login',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: loginRequest
+        },
+        willRespondWith: {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: expectedResponse
+        }
+      };
+
+      await provider.addInteraction(interaction);
+
+      // Make the request
+      axios.defaults.baseURL = 'http://localhost:3234';
+      const response = await axios.post('/api/auth/login', loginRequest);
+
+      // Verify the response matches contract
+      expect(response.status).toBe(200);
+      expect(response.data).toMatchObject({
+        user: expect.objectContaining({
+          id: expect.any(Number),
+          email: expect.any(String),
+          full_name: expect.any(String),
+          role: expect.any(String),
+          status: expect.any(String)
+        }),
+        accessToken: expect.any(String),
+        refreshToken: expect.any(String)
+      });
+
+      // Verify all expectations were met
+      await provider.verify();
+    });
+  });
+});

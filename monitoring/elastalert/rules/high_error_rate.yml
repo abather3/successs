@@ -1,0 +1,52 @@
+name: High HTTP Error Rate
+type: frequency
+index: escashop-application-*
+num_events: 10
+timeframe:
+  minutes: 5
+
+filter:
+  - range:
+      status_code:
+        gte: 400
+        lte: 599
+
+alert:
+  - "email"
+  - "slack"
+
+email:
+  - "security@escashop.com"
+  - "devops@escashop.com"
+
+slack:
+  slack_webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+  slack_channel_override: "#alerts"
+  slack_username_override: "ElastAlert"
+
+alert_text: |
+  High HTTP error rate detected in escashop application
+  
+  Error count: {0}
+  Time window: {1}
+  
+  Top errors:
+  {2}
+  
+  Please investigate immediately.
+
+alert_text_args:
+  - num_matches
+  - timeframe
+  - top_count_keys
+
+include:
+  - status_code
+  - message
+  - timestamp
+  - client_ip
+  - user_agent
+
+top_count_keys:
+  - status_code
+  - path

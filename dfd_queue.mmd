@@ -1,0 +1,80 @@
+flowchart TD
+    %% External Entities
+    STAFF[Staff/Teller]
+    CUST[Customer]
+    DISPLAY[Display System]
+    AUDIO[Audio System]
+    
+    %% Data Stores
+    DS1[(Queue Database)]
+    DS2[(Service Counter DB)]
+    DS3[(Customer Database)]
+    DS4[(Activity Log)]
+    
+    %% Processes
+    P1[2.1 Get Current Queue Status]
+    P2[2.2 Select Next Customer]
+    P3[2.3 Update Queue Position]
+    P4[2.4 Assign to Counter]
+    P5[2.5 Notify Customer]
+    P6[2.6 Update Service Status]
+    P7[2.7 Handle No-Show]
+    
+    %% Staff Initiated Flows
+    STAFF -->|Call Next Request| P1
+    STAFF -->|Service Complete| P6
+    STAFF -->|Customer No-Show| P7
+    
+    %% Get Queue Status
+    P1 -->|Queue Status Query| DS1
+    DS1 -->|Current Queue Data| P1
+    P1 -->|Available Customers List| P2
+    P1 -->|No Customers Available| STAFF
+    
+    %% Select Next Customer
+    P2 -->|Customer Selection Query| DS3
+    DS3 -->|Customer Details| P2
+    P2 -->|Selected Customer Info| P3
+    P2 -->|Customer Priority Rules| P4
+    
+    %% Update Queue Position
+    P3 -->|Position Update| DS1
+    P3 -->|Queue Update Event| DS4
+    P3 -->|Customer Call Data| P5
+    
+    %% Assign to Counter
+    P4 -->|Counter Assignment| DS2
+    P4 -->|Assignment Confirmation| P5
+    
+    %% Notify Customer
+    P5 -->|Display Message| DISPLAY
+    P5 -->|Audio Announcement| AUDIO
+    P5 -->|Call Notification| CUST
+    P5 -->|Assignment Confirmation| STAFF
+    
+    %% Service Complete
+    P6 -->|Service Status Update| DS1
+    P6 -->|Counter Status Update| DS2
+    P6 -->|Service Complete Event| DS4
+    P6 -->|Service Summary| STAFF
+    
+    %% Handle No-Show
+    P7 -->|No-Show Status Update| DS1
+    P7 -->|Counter Status Update| DS2
+    P7 -->|No-Show Event| DS4
+    P7 -->|Re-queue Option| P1
+    
+    %% Customer Response
+    CUST -->|Arrival Confirmation| STAFF
+    CUST -->|Service Request Details| STAFF
+    
+    %% Styling
+    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef datastore fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef entity fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef system fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    
+    class P1,P2,P3,P4,P5,P6,P7 process
+    class DS1,DS2,DS3,DS4 datastore
+    class STAFF,CUST entity
+    class DISPLAY,AUDIO system

@@ -1,0 +1,67 @@
+name: WAF Security Events
+type: frequency
+index: escashop-security-alerts-*
+num_events: 1
+timeframe:
+  minutes: 1
+
+filter:
+  - query:
+      query_string:
+        query: "tags:waf_blocked OR tags:sql_injection OR tags:xss_attack OR tags:rce_attack"
+
+alert:
+  - "email"
+  - "slack"
+  - "pagerduty"
+
+email:
+  - "security@escashop.com"
+  - "incident-response@escashop.com"
+
+slack:
+  slack_webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+  slack_channel_override: "#security-critical"
+  slack_username_override: "WAF Monitor"
+
+pagerduty:
+  service_key: "YOUR_PAGERDUTY_SERVICE_KEY"
+
+alert_text: |
+  🚨 WAF Security Event Detected 🚨
+  
+  Event Type: {0}
+  Client IP: {1}
+  Attack Type: {2}
+  
+  Rule Details:
+  - Rule ID: {3}
+  - Action: {4}
+  - Country: {5}
+  
+  Immediate investigation required!
+
+alert_text_args:
+  - type
+  - client_ip
+  - tags
+  - RuleId
+  - Action
+  - geoip.country_name
+
+include:
+  - client_ip
+  - RuleId
+  - Action
+  - timestamp
+  - geoip
+  - tags
+  - message
+
+top_count_keys:
+  - client_ip
+  - RuleId
+  - Action
+
+realert:
+  minutes: 5

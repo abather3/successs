@@ -1,0 +1,18 @@
+# Optional Nixpacks configuration for EscaShop
+# This file is NOT required - Nixpacks auto-detects everything
+
+[build]
+# Custom build command if needed (optional)
+# buildCommand = "npm run build:prod"
+
+[deploy]
+# Pre-deploy commands (like database migrations)
+preDeployCommand = ["npm run migrate --workspace=backend"]
+
+# Custom start command (optional - Nixpacks auto-detects)
+# startCommand = "npm start --workspace=backend"
+
+# Health check configuration
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

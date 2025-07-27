@@ -1,0 +1,46 @@
+# Terraform Variables for WAF Configuration
+# Copy this file to terraform.tfvars and update with your actual values
+
+# Cloudflare Configuration
+cloudflare_api_token = "your-cloudflare-api-token-here"
+zone_id = "your-cloudflare-zone-id"
+domain_name = "escashop.com"
+staging_domain = "staging.escashop.com"
+
+# Environment Configuration
+environment = "production"  # or "staging"
+application_name = "escashop"
+
+# Security Settings
+enable_geo_blocking = false
+enable_staging_rules = true
+
+# Geographic Blocking (ISO 3166-1 alpha-2 codes)
+blocked_countries = ["CN", "RU", "KP"]  # China, Russia, North Korea
+
+# Rate Limiting
+rate_limit_requests = 2000  # requests per 5 minutes
+
+# AWS Configuration (if using AWS WAF)
+aws_region = "us-east-1"
+aws_access_key_id = "your-aws-access-key"
+aws_secret_access_key = "your-aws-secret-key"
+
+# Admin IP Allowlist (for admin path protection)
+admin_allowed_ips = [
+  "192.168.1.0/24",    # Office network
+  "10.0.0.0/8",        # Internal network
+  "203.0.113.0/24"     # Your public IP range
+]
+
+# OWASP Rule Overrides for Staging
+staging_overrides = [
+  {
+    id = "GenericRFI_QUERYARGUMENTS"
+    action = "count"
+  },
+  {
+    id = "GenericRFI_BODY"
+    action = "count"
+  }
+]

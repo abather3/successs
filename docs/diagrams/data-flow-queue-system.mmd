@@ -1,0 +1,320 @@
+# EscaShop Queue Management System - Data Flow Diagram
+
+```mermaid
+flowchart TB
+    %% External Entities
+    SALES[👤 Sales Agent]
+    CASHIER[👥 Cashier/Staff]
+    CUSTOMER[🧑‍💼 Customer]
+    DISPLAY[📺 Display System]
+    AUDIO[🔊 Audio System]
+    SMS_SYS[📱 SMS System]
+
+    %% Core Processes
+    P1[P1: Get Current<br/>Queue Status]
+    P2[P2: Select Next<br/>Customer]
+    P3[P3: Update Queue<br/>Position]
+    P4[P4: Assign to<br/>Counter]
+    P5[P5: Notify<br/>Customer]
+    P6[P6: Update Service<br/>Status]
+    P7[P7: Handle<br/>No-Show]
+
+    %% Data Stores
+    subgraph DATABASE ["🗄️ PostgreSQL Database"]
+        DS1[(DS1: customers<br/>📋 Queue Management)]
+        DS2[(DS2: counters<br/>🏢 Service Counters)]
+        DS3[(DS3: users<br/>👤 Staff Information)]
+        DS4[(DS4: queue_events<br/>📊 Analytics Log)]
+        DS5[(DS5: transactions<br/>💰 Financial Records)]
+        DS6[(DS6: sms_notifications<br/>📨 SMS Tracking)]
+        DS7[(DS7: activity_logs<br/>🔍 Audit Trail)]
+        DS8[(DS8: queue_analytics<br/>📈 Performance Metrics)]
+    end
+
+    %% Message Queues
+    subgraph MESSAGING ["💬 Real-time Messaging"]
+        WS_QUEUE[🔄 WebSocket Queue Updates]
+        WS_CUSTOMER[👤 Customer Events]
+        WS_TRANSACTION[💳 Transaction Updates]
+        WS_AUTH[🔐 Auth Events]
+    end
+
+    %% External Integrations
+    subgraph EXTERNAL ["🌐 External Services"]
+        VONAGE[📱 Vonage SMS API]
+        GOOGLE[📊 Google Sheets API]
+    end
+
+    %% Main Flow: Customer Registration
+    SALES --> P1
+    P1 --> DS1
+    DS1 --> P2
+    P2 --> P3
+    P3 --> DS1
+    P3 --> DS4
+    P3 --> DS5
+    P3 --> WS_CUSTOMER
+
+    %% Main Flow: Queue Management
+    CASHIER --> P1
+    P1 --> P2
+    P2 --> P4
+    P4 --> DS2
+    P4 --> P5
+
+    %% Notification Flow
+    P5 --> DS6
+    P5 --> VONAGE
+    P5 --> WS_QUEUE
+    P5 --> DISPLAY
+    P5 --> AUDIO
+    P5 --> SMS_SYS
+
+    %% Service Completion Flow
+    CASHIER --> P6
+    P6 --> DS1
+    P6 --> DS2
+    P6 --> DS4
+    P6 --> WS_QUEUE
+
+    %% No-Show Handling
+    CASHIER --> P7
+    P7 --> DS1
+    P7 --> DS2
+    P7 --> DS4
+    P7 --> WS_QUEUE
+
+    %% Customer Feedback Loop
+    CUSTOMER --> DISPLAY
+    CUSTOMER --> AUDIO
+    CUSTOMER --> SMS_SYS
+    CUSTOMER --> CASHIER
+
+    %% Analytics & Reporting
+    DS4 --> DS8
+    DS4 --> GOOGLE
+    DS7 --> DS8
+
+    %% Authentication & Authorization
+    DS3 --> WS_AUTH
+    DS3 --> DS7
+
+    %% Transaction Integration
+    DS5 --> WS_TRANSACTION
+    DS5 --> DS1
+
+    %% Data Flow Labels
+    P1 -.->|Queue Status Query| DS1
+    P2 -.->|Priority Algorithm| DS1
+    P3 -.->|Status Update| DS1
+    P4 -.->|Counter Assignment| DS2
+    P5 -.->|Multi-Channel Notify| CUSTOMER
+    P6 -.->|Service Complete| DS1
+    P7 -.->|Cancel/Re-queue| DS1
+
+    %% WebSocket Event Types
+    WS_QUEUE -.->|queue:update| SALES
+    WS_QUEUE -.->|customer_called| CASHIER
+    WS_CUSTOMER -.->|customer_created| SALES
+    WS_TRANSACTION -.->|payment_updated| CASHIER
+    WS_AUTH -.->|auth_error/expire| SALES
+
+    %% SMS Integration
+    VONAGE -.->|Delivery Status| DS6
+    DS6 -.->|SMS Analytics| DS8
+
+    %% Data Export
+    GOOGLE -.->|Export Data| DS1
+    GOOGLE -.->|Export Data| DS5
+    GOOGLE -.->|Export Data| DS8
+
+    style DATABASE fill:#e1f5fe
+    style MESSAGING fill:#f3e5f5
+    style EXTERNAL fill:#e8f5e8
+    style P1 fill:#fff3e0
+    style P2 fill:#fff3e0
+    style P3 fill:#fff3e0
+    style P4 fill:#fff3e0
+    style P5 fill:#fff3e0
+    style P6 fill:#fff3e0
+    style P7 fill:#fff3e0
+```
+
+## Database Schema Details
+
+### Core Tables
+
+#### DS1: customers (Queue Management)
+```sql
+CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    or_number VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    contact_number VARCHAR(20),
+    email VARCHAR(255),
+    age INTEGER,
+    address TEXT,
+    occupation VARCHAR(255),
+    distribution_info VARCHAR(50),
+    sales_agent_id INTEGER REFERENCES users(id),
+    doctor_assigned VARCHAR(255),
+    prescription JSONB,
+    grade_type VARCHAR(100),
+    lens_type VARCHAR(100),
+    frame_code VARCHAR(100),
+    estimated_time JSONB,
+    payment_info JSONB,
+    remarks TEXT,
+    priority_flags JSONB,
+    queue_status VARCHAR(20) DEFAULT 'waiting',
+    token_number INTEGER NOT NULL,
+    manual_position INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### DS2: counters (Service Counters)
+```sql
+CREATE TABLE counters (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    current_customer_id INTEGER REFERENCES customers(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### DS4: queue_events (Analytics Log)
+```sql
+CREATE TABLE queue_events (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(id),
+    event_type VARCHAR(50) NOT NULL, -- 'joined', 'called', 'served', 'cancelled'
+    counter_id INTEGER REFERENCES counters(id),
+    queue_position INTEGER,
+    wait_time_minutes INTEGER,
+    service_time_minutes INTEGER,
+    is_priority BOOLEAN DEFAULT false,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### DS5: transactions (Financial Records)
+```sql
+CREATE TABLE transactions (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(id),
+    or_number VARCHAR(50) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_mode VARCHAR(50) NOT NULL,
+    sales_agent_id INTEGER REFERENCES users(id),
+    cashier_id INTEGER REFERENCES users(id),
+    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    paid_amount DECIMAL(10,2) DEFAULT 0,
+    balance_amount DECIMAL(10,2) GENERATED ALWAYS AS (amount - paid_amount) STORED,
+    payment_status VARCHAR(20) DEFAULT 'unpaid',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### DS6: sms_notifications (SMS Tracking)
+```sql
+CREATE TABLE sms_notifications (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(id),
+    phone_number VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    notification_type VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'pending',
+    queue_position INTEGER,
+    estimated_wait_minutes INTEGER,
+    sent_at TIMESTAMP,
+    delivered_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## Message Queue Events
+
+### WebSocket Event Types
+- **queue:update**: General queue status changes
+- **customer_called**: When customer is called to counter
+- **customer_created**: New customer registration
+- **customer_completed**: Service completion
+- **customer_cancelled**: Customer no-show/cancellation
+- **payment_status_updated**: Transaction status changes
+- **auth:error**: Authentication failures
+- **auth:expire_soon**: Token expiration warnings
+
+### Event Payload Examples
+```javascript
+// Customer Called Event
+{
+  type: 'customer_called',
+  customer: {
+    id: 123,
+    name: 'John Doe',
+    token_number: 45,
+    queue_status: 'serving'
+  },
+  counterId: 2,
+  timestamp: '2024-01-15T10:30:00Z'
+}
+
+// Queue Update Event
+{
+  type: 'queue_reordered',
+  queue: [
+    { customer_id: 124, position: 1, priority_score: 1000 },
+    { customer_id: 125, position: 2, priority_score: 0 }
+  ],
+  timestamp: '2024-01-15T10:31:00Z'
+}
+```
+
+## Data Processing Rules
+
+### Priority Calculation Algorithm
+```sql
+ORDER BY 
+  CASE 
+    WHEN manual_position IS NOT NULL THEN manual_position
+    ELSE
+      CASE 
+        WHEN priority_flags->>'senior_citizen' = 'true' THEN 1000
+        WHEN priority_flags->>'pwd' = 'true' THEN 900
+        WHEN priority_flags->>'pregnant' = 'true' THEN 800
+        ELSE 0
+      END * 100000 + EXTRACT(EPOCH FROM created_at)
+  END ASC
+```
+
+### Status Transitions
+- **waiting** → **serving** (when called)
+- **serving** → **completed** (service finished)
+- **serving** → **cancelled** (no-show)
+- **waiting** → **cancelled** (manual cancellation)
+
+### Analytics Aggregation
+- Hourly metrics calculated from queue_events
+- Daily summaries for reporting
+- Real-time KPIs (wait times, service times, throughput)
+
+## Integration Points
+
+### External Services
+- **Vonage SMS**: Customer notifications
+- **Google Sheets**: Data export and reporting
+- **Display Systems**: Queue status boards
+- **Audio Systems**: Announcements
+
+### API Endpoints
+- `POST /api/customers` - Customer registration
+- `POST /api/queue/call-next` - Call next customer
+- `POST /api/queue/complete` - Mark service complete
+- `POST /api/queue/cancel` - Handle no-shows
+- `GET /api/queue` - Get current queue status

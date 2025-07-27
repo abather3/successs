@@ -1,0 +1,421 @@
+name: Dependency Matrix Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run matrix tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      matrix_type:
+        description: 'Type of matrix to run'
+        required: false
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - next_major
+          - mixed_versions
+          - all
+      node_version:
+        description: 'Node.js version override'
+        required: false
+        default: ''
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Parse dependency matrix configuration
+  parse-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      baseline: ${{ steps.set-matrix.outputs.baseline }}
+      next-major: ${{ steps.set-matrix.outputs.next-major }}
+      mixed-versions: ${{ steps.set-matrix.outputs.mixed-versions }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Parse dependency matrix
+        id: set-matrix
+        run: |
+          # Install yq for YAML parsing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          
+          # Parse the dependency matrix file
+          BASELINE_MATRIX=$(yq e '.test_matrices.baseline.combinations' dependency-matrix.yml -o=json -I=0)
+          NEXT_MAJOR_MATRIX=$(yq e '.test_matrices.next_major.combinations' dependency-matrix.yml -o=json -I=0)
+          MIXED_VERSIONS_MATRIX=$(yq e '.test_matrices.mixed_versions.combinations' dependency-matrix.yml -o=json -I=0)
+          
+          # Combine all matrices
+          ALL_MATRIX=$(echo "$BASELINE_MATRIX $NEXT_MAJOR_MATRIX $MIXED_VERSIONS_MATRIX" | jq -s 'add')
+          
+          echo "matrix=$ALL_MATRIX" >> $GITHUB_OUTPUT
+          echo "baseline=$BASELINE_MATRIX" >> $GITHUB_OUTPUT
+          echo "next-major=$NEXT_MAJOR_MATRIX" >> $GITHUB_OUTPUT
+          echo "mixed-versions=$MIXED_VERSIONS_MATRIX" >> $GITHUB_OUTPUT
+
+  # Baseline testing with current stable versions
+  baseline-tests:
+    if: github.event.inputs.matrix_type == 'baseline' || github.event.inputs.matrix_type == 'all' || github.event.inputs.matrix_type == ''
+    needs: parse-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        combination: ${{ fromJson(needs.parse-matrix.outputs.baseline) }}
+    
+    name: "Baseline: ${{ matrix.combination.name }}"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version || matrix.combination.node_version }}
+          cache: 'npm'
+
+      - name: Setup PostgreSQL
+        uses: harmon758/postgresql-action@v1
+        with:
+          postgresql version: '14'
+          postgresql db: 'escashop_matrix_test'
+          postgresql user: 'postgres'
+          postgresql password: 'postgres'
+
+      - name: Setup Redis
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: 6
+
+      - name: Install dependencies with version overrides
+        run: |
+          # Create temporary package.json files with specific versions
+          node scripts/create-matrix-package-json.js '${{ toJson(matrix.combination) }}'
+          
+          # Install root dependencies
+          npm ci
+          
+          # Install backend dependencies
+          cd backend && npm ci
+          
+          # Install frontend dependencies  
+          cd ../frontend && npm ci
+
+      - name: Build backend
+        run: |
+          cd backend
+          npm run build
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Run backend tests
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_matrix_test
+          REDIS_URL: redis://localhost:6379/2
+          JWT_SECRET: test-secret-key
+          PORT: 5002
+        run: |
+          cd backend
+          timeout 10m npm test
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          CI=true timeout 5m npm test -- --coverage --watchAll=false
+
+      - name: Start backend for E2E tests
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_matrix_test
+          REDIS_URL: redis://localhost:6379/2
+          JWT_SECRET: test-secret-key
+          PORT: 5002
+        run: |
+          cd backend
+          npm run migrate:dev
+          npm start &
+          
+          # Wait for backend to be ready
+          timeout 30s bash -c 'until curl -f http://localhost:5002/health; do sleep 1; done'
+
+      - name: Start frontend for E2E tests
+        run: |
+          cd frontend
+          PORT=3002 npm start &
+          
+          # Wait for frontend to be ready
+          timeout 60s bash -c 'until curl -f http://localhost:3002; do sleep 1; done'
+
+      - name: Run E2E tests
+        run: |
+          npx playwright install --with-deps
+          timeout 10m npm run test:e2e
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-test-results-${{ matrix.combination.name }}
+          path: |
+            backend/coverage/
+            frontend/coverage/
+            test-results/
+            playwright-report/
+
+  # Next major version testing
+  next-major-tests:
+    if: github.event.inputs.matrix_type == 'next_major' || github.event.inputs.matrix_type == 'all'
+    needs: parse-matrix
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Expected to have some failures
+    strategy:
+      fail-fast: false
+      matrix:
+        combination: ${{ fromJson(needs.parse-matrix.outputs.next-major) }}
+    
+    name: "Next Major: ${{ matrix.combination.name }}"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version || matrix.combination.node_version }}
+          cache: 'npm'
+
+      - name: Setup PostgreSQL
+        uses: harmon758/postgresql-action@v1
+        with:
+          postgresql version: '14'
+          postgresql db: 'escashop_matrix_test'
+          postgresql user: 'postgres'
+          postgresql password: 'postgres'
+
+      - name: Setup Redis
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: 6
+
+      - name: Install dependencies with version overrides
+        continue-on-error: true
+        run: |
+          # Create temporary package.json files with specific versions
+          node scripts/create-matrix-package-json.js '${{ toJson(matrix.combination) }}'
+          
+          # Install with next major versions
+          npm ci || echo "Installation issues expected with next major versions"
+          
+          cd backend && (npm ci || echo "Backend installation issues expected")
+          cd ../frontend && (npm ci || echo "Frontend installation issues expected")
+
+      - name: Build backend
+        continue-on-error: true
+        run: |
+          cd backend
+          npm run build || echo "Build issues expected with next major versions"
+
+      - name: Build frontend
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm run build || echo "Build issues expected with next major versions"
+
+      - name: Run backend tests
+        continue-on-error: true
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_matrix_test
+          REDIS_URL: redis://localhost:6379/2
+          JWT_SECRET: test-secret-key
+          PORT: 5002
+        run: |
+          cd backend
+          timeout 15m npm test || echo "Test failures expected with next major versions"
+
+      - name: Run frontend tests
+        continue-on-error: true
+        run: |
+          cd frontend
+          CI=true timeout 10m npm test -- --coverage --watchAll=false || echo "Test failures expected"
+
+      - name: Generate compatibility report
+        if: always()
+        run: |
+          node scripts/generate-compatibility-report.js '${{ matrix.combination.name }}' '${{ toJson(matrix.combination) }}'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-major-test-results-${{ matrix.combination.name }}
+          path: |
+            backend/coverage/
+            frontend/coverage/
+            test-results/
+            compatibility-reports/
+
+  # Mixed version testing
+  mixed-version-tests:
+    if: github.event.inputs.matrix_type == 'mixed_versions' || github.event.inputs.matrix_type == 'all'
+    needs: parse-matrix
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        combination: ${{ fromJson(needs.parse-matrix.outputs.mixed-versions) }}
+    
+    name: "Mixed: ${{ matrix.combination.name }}"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version || matrix.combination.node_version }}
+          cache: 'npm'
+
+      - name: Setup PostgreSQL
+        uses: harmon758/postgresql-action@v1
+        with:
+          postgresql version: '14'
+          postgresql db: 'escashop_matrix_test'
+          postgresql user: 'postgres'
+          postgresql password: 'postgres'
+
+      - name: Setup Redis
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: 6
+
+      - name: Install dependencies with version overrides
+        continue-on-error: true
+        run: |
+          node scripts/create-matrix-package-json.js '${{ toJson(matrix.combination) }}'
+          
+          npm ci || echo "Installation issues possible with mixed versions"
+          cd backend && (npm ci || echo "Backend installation issues possible")
+          cd ../frontend && (npm ci || echo "Frontend installation issues possible")
+
+      - name: Build and test
+        continue-on-error: true
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_matrix_test
+          REDIS_URL: redis://localhost:6379/2
+          JWT_SECRET: test-secret-key
+          PORT: 5002
+        run: |
+          # Backend
+          cd backend
+          npm run build || echo "Backend build issues possible"
+          timeout 15m npm test || echo "Backend test issues possible"
+          
+          # Frontend
+          cd ../frontend
+          npm run build || echo "Frontend build issues possible"
+          CI=true timeout 10m npm test -- --coverage --watchAll=false || echo "Frontend test issues possible"
+
+      - name: Generate compatibility report
+        if: always()
+        run: |
+          node scripts/generate-compatibility-report.js '${{ matrix.combination.name }}' '${{ toJson(matrix.combination) }}'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixed-version-test-results-${{ matrix.combination.name }}
+          path: |
+            backend/coverage/
+            frontend/coverage/
+            test-results/
+            compatibility-reports/
+
+  # Generate final compatibility matrix report
+  generate-compatibility-matrix:
+    if: always()
+    needs: [baseline-tests, next-major-tests, mixed-version-tests]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-artifacts/
+
+      - name: Generate final compatibility matrix
+        run: |
+          node scripts/generate-final-compatibility-matrix.js
+
+      - name: Upload compatibility matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-matrix-report
+          path: |
+            compatibility-matrix.html
+            compatibility-matrix.json
+            compatibility-summary.md
+
+      - name: Comment PR with compatibility results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './compatibility-summary.md';
+            
+            if (fs.existsSync(path)) {
+              const summary = fs.readFileSync(path, 'utf8');
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🔍 Dependency Compatibility Matrix Results\n\n${summary}`
+              });
+            }
+
+      - name: Notify on compatibility issues
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: |
+            🚨 Dependency Matrix Testing Failed
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Workflow: ${{ github.workflow }}
+            
+            Check the compatibility matrix report for details.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

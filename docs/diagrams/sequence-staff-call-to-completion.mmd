@@ -1,0 +1,219 @@
+# Staff Call to Customer Service Completion - Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant ST as Staff/Cashier
+    participant FE as Frontend App
+    participant BE as Backend API
+    participant DB as PostgreSQL DB
+    participant QS as Queue Service
+    participant AS as Analytics Service
+    participant WS as WebSocket Server
+    participant NS as Notification Service
+    participant SMS as SMS Provider (Vonage)
+    participant DISP as Display System
+    participant AUD as Audio System
+    participant ALL as All Connected Clients
+    participant CUST as Customer
+
+    Note over ST, CUST: Complete Service Lifecycle: Call → Serve → Complete
+
+    %% Phase 1: Staff Initiates "Call Next"
+    ST->>+FE: Click "Call Next" button
+    FE->>+BE: POST /api/queue/call-next {counterId: number}
+    
+    BE->>+QS: callNext(counterId)
+    QS->>+DB: BEGIN TRANSACTION
+    
+    %% Priority-based customer selection
+    QS->>+DB: SELECT next customer with priority calculation (FOR UPDATE)
+    Note over QS, DB: Query with ROW_NUMBER() OVER (ORDER BY priority_flags + created_at)
+    DB-->>-QS: Next customer with position and wait time
+    
+    alt No customers waiting
+        QS-->>BE: null (no customers)
+        BE-->>FE: 404 "No customers in queue"
+        FE-->>ST: "No customers waiting"
+    else Customer found
+        
+        %% Update customer and counter status
+        QS->>+DB: UPDATE customers SET queue_status='serving' WHERE id=customerId
+        DB-->>-QS: Customer status updated
+        
+        QS->>+DB: UPDATE counters SET current_customer_id=customerId WHERE id=counterId
+        DB-->>-QS: Counter assigned
+        
+        QS->>+DB: COMMIT TRANSACTION
+        DB-->>-QS: Transaction committed
+        
+        %% Record analytics
+        QS->>+AS: recordQueueEvent(customerId, 'called', counterId, position, waitTime, isPriority)
+        AS->>+DB: INSERT INTO queue_events
+        DB-->>-AS: Event recorded
+        AS-->>-QS: Analytics complete
+        
+        QS-->>-BE: Customer data with serving status
+        BE-->>-FE: Customer called successfully
+        FE-->>-ST: Customer details + token number
+        
+        %% Phase 2: Multi-Channel Customer Notifications
+        par Parallel Notifications
+            %% WebSocket Real-time Update
+            BE->>+WS: emitQueueUpdate({type: 'customer_called', customer, counterId, timestamp})
+            WS->>ALL: Broadcast queue update to all connected clients
+            
+            %% SMS Notification
+            BE->>+NS: sendCustomerReadyNotification(customerId, customerName, phoneNumber)
+            NS->>+DB: SELECT SMS template for 'ready_to_serve'
+            DB-->>-NS: SMS template with variables
+            NS->>NS: Replace template variables ({{customer_name}}, {{counter_name}}, {{token_number}})
+            NS->>+SMS: Send SMS via Vonage API
+            SMS-->>-NS: SMS sent confirmation
+            NS->>+DB: INSERT INTO sms_notifications (customer_id, message, status, sent_at)
+            DB-->>-NS: Notification logged
+            
+            %% Display System Update
+            BE->>+DISP: updateNowServing({tokenNumber, counterName, timestamp})
+            DISP-->>-BE: Display updated
+            
+            %% Audio Announcement
+            BE->>+AUD: announce("Customer [Name], Token [Number], please proceed to Counter [Name]")
+            AUD-->>-BE: Announcement played
+        end
+        
+        Note over ST, CUST: Customer notified via multiple channels
+        
+        %% Phase 3: Customer Response & Service
+        CUST->>CUST: Receives notifications (SMS, Audio, Display)
+        CUST->>ST: Arrives at assigned counter
+        ST->>ST: Provides service (eye examination, consultation, etc.)
+        
+        Note over ST, CUST: Service in progress...
+        
+        %% Phase 4: Service Completion
+        ST->>+FE: Click "Service Complete" button
+        FE->>+BE: POST /api/queue/complete {customerId, counterId}
+        
+        BE->>+QS: completeService(customerId, counterId)
+        QS->>+DB: BEGIN TRANSACTION
+        
+        %% Calculate service time and update status
+        QS->>+DB: SELECT service_time_minutes = (NOW() - updated_at) FROM customers WHERE id=customerId AND queue_status='serving'
+        DB-->>-QS: Service time calculated
+        
+        QS->>+DB: UPDATE customers SET queue_status='completed' WHERE id=customerId
+        DB-->>-QS: Customer status updated
+        
+        QS->>+DB: UPDATE counters SET current_customer_id=NULL WHERE id=counterId
+        DB-->>-QS: Counter freed
+        
+        QS->>+DB: COMMIT TRANSACTION
+        DB-->>-QS: Transaction committed
+        
+        %% Record completion analytics
+        QS->>+AS: recordQueueEvent(customerId, 'served', counterId, serviceTime, isPriority)
+        AS->>+DB: INSERT INTO queue_events (event_type='served', service_time_minutes)
+        DB-->>-AS: Completion event recorded
+        AS-->>-QS: Analytics complete
+        
+        QS-->>-BE: Service completion confirmed
+        BE-->>-FE: Success response
+        FE-->>-ST: "Service completed successfully"
+        
+        %% Phase 5: Post-Completion Updates
+        BE->>+WS: emitQueueUpdate({type: 'customer_completed', customer, counterId, serviceTime, timestamp})
+        WS->>ALL: Broadcast completion to all clients
+        
+        Note over ST, CUST: Service cycle complete - Counter available for next customer
+    end
+
+    %% Alternative Flow: No-Show Handling
+    alt Customer No-Show
+        ST->>+FE: Click "No Show" or "Cancel"
+        FE->>+BE: POST /api/queue/cancel {customerId, reason: "no_show"}
+        
+        BE->>+QS: cancelService(customerId, "no_show")
+        QS->>+DB: UPDATE customers SET queue_status='cancelled', remarks='Cancelled: no_show'
+        DB-->>-QS: Customer cancelled
+        
+        QS->>+DB: UPDATE counters SET current_customer_id=NULL WHERE id=counterId
+        DB-->>-QS: Counter freed
+        
+        QS->>+AS: recordQueueEvent(customerId, 'cancelled', isPriority, reason='no_show')
+        AS->>+DB: INSERT INTO queue_events (event_type='cancelled')
+        DB-->>-AS: Cancellation recorded
+        
+        QS-->>-BE: Cancellation confirmed
+        BE-->>FE: Customer cancelled
+        FE-->>ST: "Customer marked as no-show"
+        
+        BE->>+WS: emitQueueUpdate({type: 'customer_cancelled', customer, reason, timestamp})
+        WS->>ALL: Broadcast cancellation
+    end
+```
+
+## Process Flow Summary
+
+### Phase 1: Customer Selection (P1-P2)
+- Staff initiates "Call Next"
+- System queries waiting customers with priority algorithm
+- Selects next customer based on priority + FIFO
+
+### Phase 2: Status Updates (P3-P4)  
+- Customer status → 'serving'
+- Counter assignment updated
+- Analytics event recorded
+
+### Phase 3: Multi-Channel Notifications (P5)
+- **WebSocket**: Real-time UI updates
+- **SMS**: Customer notification via Vonage
+- **Display**: Visual queue boards updated  
+- **Audio**: Text-to-speech announcement
+
+### Phase 4: Service Delivery
+- Customer arrives at assigned counter
+- Staff provides service
+- Service time tracked automatically
+
+### Phase 5: Completion (P6)
+- Staff marks service complete
+- Customer status → 'completed'
+- Counter freed for next customer
+- Service time analytics recorded
+
+### Alternative: No-Show Handling (P7)
+- Staff can mark customer as no-show
+- Customer status → 'cancelled'  
+- Counter immediately freed
+- Re-queue option available
+
+## Key Database Operations
+
+### Queue Management Tables
+- **customers**: Status transitions (waiting→serving→completed/cancelled)
+- **counters**: Customer assignment tracking
+- **queue_events**: Complete event audit trail
+- **sms_notifications**: SMS delivery tracking
+
+### Analytics & Reporting
+- **queue_analytics**: Hourly performance metrics
+- **daily_queue_summary**: Daily aggregated statistics
+- **activity_logs**: Staff action audit trail
+
+## Performance Features
+
+### Atomic Operations
+- Database transactions ensure consistency
+- FOR UPDATE locks prevent conflicts
+- Rollback on failures
+
+### Real-time Updates  
+- WebSocket broadcasts to all connected clients
+- Role-based message filtering
+- Automatic UI synchronization
+
+### Error Handling
+- SMS delivery failure fallbacks
+- Audio system backup procedures  
+- WebSocket reconnection logic
+- Database connection pooling

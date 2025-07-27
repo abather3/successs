@@ -1,0 +1,277 @@
+-- Production Database Schema Dump
+-- Generated on: 2025-07-21T16:07:50.333Z
+
+-- Table: activity_logs
+-- id: integer NOT NULL DEFAULT nextval('activity_logs_id_seq'::regclass)
+-- user_id: integer NULL 
+-- action: character varying(255) NOT NULL 
+-- details: jsonb NULL 
+-- ip_address: inet NULL 
+-- user_agent: text NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: applied_migrations
+-- id: integer NOT NULL DEFAULT nextval('applied_migrations_id_seq'::regclass)
+-- migration_name: character varying(255) NOT NULL 
+-- applied_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: cashier_notifications
+-- id: integer NOT NULL DEFAULT nextval('cashier_notifications_id_seq'::regclass)
+-- notification_id: character varying(100) NOT NULL 
+-- customer_id: integer NULL 
+-- customer_name: character varying(255) NOT NULL 
+-- or_number: character varying(50) NOT NULL 
+-- token_number: integer NOT NULL 
+-- payment_amount: numeric NULL DEFAULT 0
+-- payment_mode: character varying(50) NULL 
+-- distribution_method: character varying(50) NULL 
+-- priority_type: character varying(50) NOT NULL DEFAULT 'Standard Customer'::character varying
+-- is_priority: boolean NULL DEFAULT false
+-- priority_flags: jsonb NULL DEFAULT '{"pwd": false, "pregnant": false, "senior_citizen": false}'::jsonb
+-- created_by: integer NULL 
+-- created_by_name: character varying(255) NOT NULL 
+-- location_id: integer NULL DEFAULT 1
+-- message: text NOT NULL 
+-- notification_type: character varying(50) NULL DEFAULT 'customer_registration'::character varying
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- expires_at: timestamp without time zone NOT NULL 
+-- acknowledged_at: timestamp without time zone NULL 
+-- acknowledged_by: integer NULL 
+-- metadata: jsonb NULL DEFAULT '{}'::jsonb
+-- is_read: boolean NULL DEFAULT false
+-- is_dismissed: boolean NULL DEFAULT false
+-- dismissed_at: timestamp without time zone NULL 
+-- dismissed_by: integer NULL 
+
+-- Table: counters
+-- id: integer NOT NULL DEFAULT nextval('counters_id_seq'::regclass)
+-- name: character varying(100) NOT NULL 
+-- is_active: boolean NULL DEFAULT true
+-- current_customer_id: integer NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- display_order: integer NULL DEFAULT 0
+
+-- Table: customer_notification_actions
+-- id: integer NOT NULL DEFAULT nextval('customer_notification_actions_id_seq'::regclass)
+-- notification_id: character varying(50) NOT NULL 
+-- action_type: character varying(50) NOT NULL 
+-- label: character varying(100) NOT NULL 
+-- is_primary: boolean NULL DEFAULT false
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: customer_notifications
+-- id: integer NOT NULL DEFAULT nextval('customer_notifications_id_seq'::regclass)
+-- notification_id: character varying(50) NOT NULL 
+-- type: character varying(50) NOT NULL DEFAULT 'customer_registration'::character varying
+-- title: character varying(200) NOT NULL 
+-- message: text NOT NULL 
+-- customer_data: jsonb NOT NULL 
+-- created_by_id: integer NOT NULL 
+-- created_by_name: character varying(100) NOT NULL 
+-- created_by_role: character varying(20) NOT NULL 
+-- target_role: character varying(20) NOT NULL DEFAULT 'cashier'::character varying
+-- target_user_id: integer NULL 
+-- is_read: boolean NULL DEFAULT false
+-- read_at: timestamp without time zone NULL 
+-- read_by_user_id: integer NULL 
+-- expires_at: timestamp without time zone NOT NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: customers
+-- id: integer NOT NULL DEFAULT nextval('customers_id_seq'::regclass)
+-- or_number: character varying(100) NOT NULL 
+-- name: character varying(255) NOT NULL 
+-- contact_number: character varying(50) NOT NULL 
+-- email: character varying(255) NULL 
+-- age: integer NOT NULL 
+-- address: text NOT NULL 
+-- occupation: character varying(255) NULL 
+-- distribution_info: character varying(50) NOT NULL 
+-- sales_agent_id: integer NULL 
+-- prescription: jsonb NULL 
+-- grade_type: character varying(100) NOT NULL 
+-- lens_type: character varying(100) NOT NULL 
+-- frame_code: character varying(100) NULL 
+-- payment_info: jsonb NOT NULL 
+-- remarks: text NULL 
+-- priority_flags: jsonb NOT NULL 
+-- queue_status: character varying(50) NOT NULL DEFAULT 'waiting'::character varying
+-- token_number: integer NOT NULL 
+-- priority_score: integer NULL DEFAULT 0
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- doctor_assigned: character varying(255) NULL 
+-- manual_position: integer NULL 
+-- estimated_time: jsonb NULL 
+
+-- Table: daily_queue_summary
+-- id: integer NOT NULL DEFAULT nextval('daily_queue_summary_id_seq'::regclass)
+-- date: date NOT NULL 
+-- total_customers: integer NULL DEFAULT 0
+-- priority_customers: integer NULL DEFAULT 0
+-- avg_wait_time_minutes: numeric NULL DEFAULT 0
+-- avg_service_time_minutes: numeric NULL DEFAULT 0
+-- peak_hour: integer NULL 
+-- peak_queue_length: integer NULL DEFAULT 0
+-- customers_served: integer NULL DEFAULT 0
+-- busiest_counter_id: integer NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: daily_reports
+-- id: integer NOT NULL DEFAULT nextval('daily_reports_id_seq'::regclass)
+-- date: date NOT NULL 
+-- total_cash: numeric NULL DEFAULT 0
+-- total_gcash: numeric NULL DEFAULT 0
+-- total_maya: numeric NULL DEFAULT 0
+-- total_credit_card: numeric NULL DEFAULT 0
+-- total_bank_transfer: numeric NULL DEFAULT 0
+-- petty_cash_start: numeric NULL DEFAULT 0
+-- petty_cash_end: numeric NULL DEFAULT 0
+-- expenses: jsonb NULL 
+-- cash_turnover: numeric NULL DEFAULT 0
+-- transaction_count: integer NULL DEFAULT 0
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- funds: jsonb NULL DEFAULT '[]'::jsonb
+
+-- Table: dropdown_options
+-- id: integer NOT NULL DEFAULT nextval('dropdown_options_id_seq'::regclass)
+-- category: character varying(50) NOT NULL 
+-- value: character varying(255) NOT NULL 
+-- display_text: character varying(255) NOT NULL 
+-- is_active: boolean NULL DEFAULT true
+-- sort_order: integer NULL DEFAULT 0
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: grade_types
+-- id: integer NOT NULL DEFAULT nextval('grade_types_id_seq'::regclass)
+-- name: character varying(255) NOT NULL 
+-- description: text NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: lens_types
+-- id: integer NOT NULL DEFAULT nextval('lens_types_id_seq'::regclass)
+-- name: character varying(255) NOT NULL 
+-- description: text NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: notification_logs
+-- id: integer NOT NULL DEFAULT nextval('notification_logs_id_seq'::regclass)
+-- customer_id: integer NULL 
+-- message: text NOT NULL 
+-- status: character varying(50) NOT NULL 
+-- delivery_status: text NULL 
+-- sent_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: payment_settlements
+-- id: integer NOT NULL DEFAULT nextval('payment_settlements_id_seq'::regclass)
+-- transaction_id: integer NULL 
+-- amount: numeric NOT NULL 
+-- payment_mode: character varying(50) NOT NULL 
+-- paid_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- cashier_id: integer NULL 
+-- notes: text NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: queue
+-- id: integer NOT NULL DEFAULT nextval('queue_id_seq'::regclass)
+-- customer_id: integer NOT NULL 
+-- position: integer NOT NULL 
+-- status: character varying(50) NOT NULL DEFAULT 'waiting'::character varying
+-- estimated_time: integer NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: queue_analytics
+-- id: integer NOT NULL DEFAULT nextval('queue_analytics_id_seq'::regclass)
+-- date: date NOT NULL 
+-- hour: integer NOT NULL 
+-- total_customers: integer NULL DEFAULT 0
+-- priority_customers: integer NULL DEFAULT 0
+-- avg_wait_time_minutes: numeric NULL DEFAULT 0
+-- avg_service_time_minutes: numeric NULL DEFAULT 0
+-- peak_queue_length: integer NULL DEFAULT 0
+-- customers_served: integer NULL DEFAULT 0
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: queue_events
+-- id: integer NOT NULL DEFAULT nextval('queue_events_id_seq'::regclass)
+-- customer_id: integer NULL 
+-- event_type: character varying(50) NOT NULL 
+-- counter_id: integer NULL 
+-- queue_position: integer NULL 
+-- wait_time_minutes: numeric NULL 
+-- service_time_minutes: numeric NULL 
+-- is_priority: boolean NULL DEFAULT false
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- details: jsonb NULL 
+-- processing_start_at: timestamp with time zone NULL 
+-- processing_end_at: timestamp with time zone NULL 
+
+-- Table: sms_notifications
+-- id: integer NOT NULL DEFAULT nextval('sms_notifications_id_seq'::regclass)
+-- customer_id: integer NULL 
+-- phone_number: character varying(20) NOT NULL 
+-- message: text NOT NULL 
+-- notification_type: character varying(50) NOT NULL 
+-- status: character varying(20) NULL DEFAULT 'pending'::character varying
+-- delivery_status: text NULL 
+-- queue_position: integer NULL 
+-- estimated_wait_minutes: integer NULL 
+-- sent_at: timestamp without time zone NULL 
+-- delivered_at: timestamp without time zone NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: sms_templates
+-- id: integer NOT NULL DEFAULT nextval('sms_templates_id_seq'::regclass)
+-- name: character varying(100) NOT NULL 
+-- template_content: text NOT NULL 
+-- variables: jsonb NULL 
+-- is_active: boolean NULL DEFAULT true
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: system_settings
+-- id: integer NOT NULL DEFAULT nextval('system_settings_id_seq'::regclass)
+-- key: character varying(255) NOT NULL 
+-- value: text NOT NULL 
+-- description: text NULL 
+-- category: character varying(100) NOT NULL 
+-- data_type: character varying(20) NOT NULL 
+-- is_public: boolean NOT NULL DEFAULT false
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: transactions
+-- id: integer NOT NULL DEFAULT nextval('transactions_id_seq'::regclass)
+-- customer_id: integer NULL 
+-- or_number: character varying(100) NOT NULL 
+-- amount: numeric NOT NULL 
+-- payment_mode: character varying(50) NOT NULL 
+-- sales_agent_id: integer NULL 
+-- cashier_id: integer NULL 
+-- transaction_date: timestamp without time zone NOT NULL 
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- paid_amount: numeric NULL DEFAULT 0
+-- balance_amount: numeric NULL 
+-- payment_status: character varying(20) NULL DEFAULT 'unpaid'::character varying
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+
+-- Table: users
+-- id: integer NOT NULL DEFAULT nextval('users_id_seq'::regclass)
+-- email: character varying(255) NOT NULL 
+-- full_name: character varying(255) NOT NULL 
+-- password_hash: character varying(255) NOT NULL 
+-- role: character varying(50) NOT NULL 
+-- status: character varying(50) NOT NULL DEFAULT 'active'::character varying
+-- created_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- updated_at: timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+-- reset_token: character varying(255) NULL 
+-- reset_token_expiry: timestamp without time zone NULL 
+

@@ -1,0 +1,62 @@
+graph TB
+    %% Central EscaShop System
+    ES["`**EscaShop System**
+    Core Queue Management
+    Customer Registration
+    Transaction Processing`"]:::centerSystem
+
+    %% External Integrations
+    SMS1["`**Twilio**
+    SMS Gateway
+    SMS Delivery Status`"]:::smsProvider
+    
+    SMS2["`**ClickSend**
+    SMS Gateway (PH-friendly)
+    Delivery Reports`"]:::smsProvider
+    
+    SHEETS["`**Google Sheets**
+    Data Export
+    Reporting Dashboard`"]:::googleService
+    
+    PRINTER["`**Thermal Printer**
+    Receipt Generation
+    Queue Tickets`"]:::hardwareDevice
+    
+    EMAIL["`**Email SMTP**
+    Gmail/Office365
+    User Notifications`"]:::emailService
+
+    %% Database
+    DB[("`**Database**
+    PostgreSQL
+    Customer Data
+    Queue Management`")]:::database
+
+    %% Connections with labels
+    ES -->|"Queue Position Updates<br/>Ready Notifications<br/>Delivery Status"| SMS1
+    ES -->|"Queue Position Updates<br/>Ready Notifications<br/>Delivery Status"| SMS2
+    ES -->|"Customer Data Export<br/>Bulk Reports<br/>Analytics Data"| SHEETS
+    ES -->|"Queue Tickets<br/>Receipts<br/>Service Documents"| PRINTER
+    ES -->|"Password Reset<br/>Welcome Messages<br/>Account Notifications"| EMAIL
+    ES -->|"Customer Records<br/>Transaction Data<br/>Queue Status"| DB
+
+    %% Bidirectional connections
+    SMS1 -.->|"Delivery Confirmations<br/>Error Reports"| ES
+    SMS2 -.->|"Delivery Confirmations<br/>Error Reports"| ES
+    SHEETS -.->|"Export Status<br/>Integration Health"| ES
+    EMAIL -.->|"Delivery Status<br/>Bounce Reports"| ES
+    DB -.->|"Data Retrieval<br/>Real-time Updates"| ES
+
+    %% Styling
+    classDef centerSystem fill:#4285f4,stroke:#1a73e8,stroke-width:4px,color:#fff
+    classDef smsProvider fill:#34a853,stroke:#137333,stroke-width:2px,color:#fff
+    classDef googleService fill:#ea4335,stroke:#c5221f,stroke-width:2px,color:#fff
+    classDef hardwareDevice fill:#ff6d01,stroke:#e8710a,stroke-width:2px,color:#fff
+    classDef emailService fill:#9aa0a6,stroke:#5f6368,stroke-width:2px,color:#fff
+    classDef database fill:#673ab7,stroke:#512da8,stroke-width:2px,color:#fff
+
+    %% Additional styling for better visual hierarchy
+    ES -.->|"System Integration Layer"| SMS1
+    ES -.->|"API Gateway"| SHEETS
+    ES -.->|"Hardware Interface"| PRINTER
+    ES -.->|"Authentication & Notifications"| EMAIL

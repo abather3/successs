@@ -1,0 +1,45 @@
+flowchart TD
+    A[System Login] --> B{Authentication Valid?}
+    B -->|No| C[Show Error Message]
+    C --> A
+    B -->|Yes| D[Sales Dashboard]
+    D --> E{Select Sales Function}
+    E --> F[Register Customer]
+    E --> G[Update Customer Info]
+    E --> H[Generate Quote]
+    E --> I[Process Order]
+    E --> J[Check Inventory]
+    E --> K[Daily Sales Summary]
+    
+    F --> L[Enter Customer Details]
+    G --> M[Search Customer]
+    H --> N[Select Products]
+    I --> O[Confirm Order Details]
+    J --> P[Product Availability]
+    
+    L --> Q[Assign Loyalty Program]
+    M --> R[Update Customer Record]
+    N --> S[Calculate Quote]
+    O --> T[Process Payment]
+    P --> U[Notify Shortage]
+    
+    Q --> V[Customer Registered]
+    R --> W[Record Updated]
+    S --> X[Quote Provided]
+    T --> Y[Order Processed]
+    U --> Z[Inventory Updated]
+    
+    V --> AA[Send Welcome Package]
+    W --> BB[Customer Notified]
+    X --> CC[Quote Finalized]
+    Y --> DD[Order Shipped]
+    Z --> AA
+    
+    AA --> EE[Sales Process Complete]
+    BB --> EE
+    CC --> EE
+    DD --> EE
+    
+    EE --> FF[Logout]
+    FF --> GG[End Session]
+    

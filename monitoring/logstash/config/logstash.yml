@@ -1,0 +1,9 @@
+http.host: "0.0.0.0"
+xpack.monitoring.enabled: false
+pipeline.workers: 4
+pipeline.batch.size: 1000
+pipeline.batch.delay: 50
+config.reload.automatic: true
+config.reload.interval: 3s
+log.level: info
+path.logs: /var/log/logstash

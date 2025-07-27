@@ -1,0 +1,55 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: escashop-backend
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: escashop-backend
+          container: escashop-backend-prod
+          __path__: /var/log/app/*.log
+
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)' 
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+
+  - job_name: midnight-reset-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: midnight-reset-monitor
+          component: scheduler
+          process: midnight_reset
+          __path__: /var/log/midnight_reset*.log
+    pipeline_stages:
+      - match:
+          selector: '{job="midnight-reset-monitor"}'
+          stages:
+            - regex:
+                expression: '\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) PH\] (?P<level>\w+) (?P<message>.*)'
+            - labels:
+                level:
+                timestamp:
+            - timestamp:
+                source: timestamp
+                format: '2006-01-02 15:04:05'
+                location: 'Asia/Manila'

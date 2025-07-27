@@ -1,0 +1,111 @@
+# Customer Creation to Queue Appearance - Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant SA as Sales Agent
+    participant FE as Frontend App
+    participant BE as Backend API
+    participant DB as PostgreSQL DB
+    participant WS as WebSocket Server
+    participant TS as Transaction Service
+    participant QS as Queue Service
+    participant AS as Analytics Service
+    participant ALL as All Connected Clients
+
+    Note over SA, ALL: Customer Registration and Queue Entry Process
+
+    %% Phase 1: Customer Registration
+    SA->>+FE: Fill customer registration form
+    FE->>+BE: POST /api/customers (with create_initial_transaction=true)
+    
+    BE->>+DB: BEGIN TRANSACTION
+    
+    %% Generate unique identifiers
+    BE->>+DB: SELECT COUNT(*) FROM customers WHERE created_at >= today
+    DB-->>-BE: Daily token count
+    BE->>BE: Generate token_number = count + 1
+    BE->>BE: Generate OR number (OR + date + token + random)
+    
+    %% Insert customer record
+    BE->>+DB: INSERT INTO customers (or_number, name, contact_number, email, age, address, occupation, distribution_info, sales_agent_id, doctor_assigned, prescription, grade_type, lens_type, frame_code, estimated_time, payment_info, remarks, priority_flags, queue_status='waiting', token_number)
+    DB-->>-BE: Customer record created
+    
+    %% Create initial transaction (optional)
+    alt create_initial_transaction = true
+        BE->>+TS: createInitialTransaction(customer_id, or_number, sales_agent_id)
+        TS->>+DB: INSERT INTO transactions (customer_id, or_number, amount=payment_info.amount, payment_mode=payment_info.mode, sales_agent_id, cashier_id=null, paid_amount=0, payment_status='unpaid')
+        DB-->>-TS: Transaction created
+        TS-->>-BE: Initial transaction success
+    end
+    
+    %% Record analytics event
+    BE->>+AS: recordQueueEvent(customerId, eventType='joined', isPriority)
+    AS->>+DB: INSERT INTO queue_events (customer_id, event_type='joined', is_priority, created_at)
+    DB-->>-AS: Queue event recorded
+    AS-->>-BE: Analytics recorded
+    
+    BE->>+DB: COMMIT TRANSACTION
+    DB-->>-BE: Transaction committed
+    
+    %% Phase 2: Real-time Notifications
+    BE->>+WS: emitCustomerCreated({customer, created_by, has_initial_transaction, timestamp})
+    WS->>ALL: Broadcast 'customer_created' event to role:sales, role:admin, role:cashier
+    
+    BE-->>-FE: Customer created successfully
+    FE-->>-SA: Success confirmation + customer details
+    
+    Note over SA, ALL: Customer now appears in queue system
+
+    %% Phase 3: Queue System Updates
+    FE->>+BE: GET /api/queue (auto-refresh or WebSocket subscription)
+    BE->>+QS: getQueue()
+    QS->>+DB: SELECT customers with priority calculation and position ordering
+    DB-->>-QS: Queue with positions
+    QS-->>-BE: Formatted queue data
+    BE-->>-FE: Current queue state
+    
+    %% Phase 4: Transaction List Updates (if initial transaction created)
+    alt initial_transaction_created
+        FE->>+BE: GET /api/transactions (sales page)
+        BE->>+DB: SELECT transactions with INNER JOIN customers
+        DB-->>-BE: Transaction list with customer details
+        BE-->>-FE: Customer visible in transaction list
+    end
+
+    Note over SA, ALL: End-to-End Flow Complete - Customer Ready for Service
+```
+
+## Key Components Involved
+
+### Database Tables
+- **customers**: Main customer data with queue status
+- **transactions**: Financial records (if initial transaction created)
+- **queue_events**: Analytics and event tracking
+- **users**: Sales agent information
+
+### Message Queues/Events
+- **WebSocket Events**: `customer_created` broadcast
+- **Queue Updates**: Real-time queue status changes
+- **Transaction Updates**: Payment/transaction notifications
+
+### External Systems
+- **Frontend React App**: User interface
+- **WebSocket Server**: Real-time communications
+- **Analytics Service**: Queue performance tracking
+
+## Priority Handling
+The system calculates priority scores:
+- Senior Citizen: +1000 points
+- PWD (Person with Disability): +900 points  
+- Pregnant: +800 points
+- FIFO for same priority level
+
+## Data Flow Summary
+1. Sales agent registers customer
+2. System generates unique identifiers (OR number, token)
+3. Customer record created with 'waiting' status
+4. Optional initial transaction for immediate visibility
+5. Analytics event recorded for queue join
+6. WebSocket broadcast to all connected users
+7. Customer appears in queue with calculated position
+8. Real-time updates propagate to all interfaces

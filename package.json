@@ -1,0 +1,39 @@
+{
+  "name": "escashop-queue-system",
+  "version": "1.0.0",
+  "description": "EscaShop Optical Queue Management System",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "start": "npm start --workspace=backend",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:transactions": "playwright test tests/transactions-page.spec.ts",
+    "test:e2e:cashier": "playwright test tests/cashier-transaction-flow.spec.ts",
+    "test:e2e:websocket": "playwright test tests/websocket-connection-recovery.spec.ts",
+    "test:contract:consumer": "npm run test:contract:consumer --workspace=frontend",
+    "test:contract:provider": "npm run test:contract:provider --workspace=backend",
+    "test:contract:websocket": "npm run test:contract:websocket --workspace=backend",
+    "test:contract:all": "npm run test:contract:consumer && npm run test:contract:provider && npm run test:contract:websocket",
+    "pact:publish": "npm run pact:publish --workspace=backend"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.1",
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.16.3",
+    "ws": "^8.18.3"
+  }
+}

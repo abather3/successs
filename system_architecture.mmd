@@ -1,0 +1,77 @@
+flowchart TD
+    %% User Interface Layer
+    User[👤 User] --> Login[🔐 Login Form]
+    Login --> AuthService[🔑 Authentication Service]
+    
+    %% Authentication & JWT
+    AuthService --> JWT{JWT Token<br/>Generation}
+    JWT -->|Valid Credentials| TokenIssued[✅ JWT Token Issued]
+    JWT -->|Invalid Credentials| AuthFailed[❌ Authentication Failed]
+    TokenIssued --> Frontend[🖥️ Frontend Application]
+    
+    %% Security Layers
+    Frontend --> RateLimit[🛡️ Rate Limiter<br/>Security Layer]
+    RateLimit -->|Requests Under Limit| APIGateway[🚪 API Gateway]
+    RateLimit -->|Too Many Requests| RateLimited[🚫 Rate Limited]
+    
+    APIGateway --> JWTValidation[🔍 JWT Validation<br/>Middleware]
+    JWTValidation -->|Valid Token| RBACCheck[🔒 RBAC Middleware<br/>Role-Based Access]
+    JWTValidation -->|Invalid Token| Unauthorized[🚫 Unauthorized]
+    
+    %% Backend Services Layer
+    RBACCheck -->|Authorized| BackendServices[⚙️ Backend Services]
+    RBACCheck -->|Insufficient Permissions| Forbidden[🚫 Forbidden]
+    
+    BackendServices --> UserService[👥 User Service]
+    BackendServices --> DataService[📊 Data Service]
+    BackendServices --> ReportService[📈 Report Service]
+    BackendServices --> NotificationService[🔔 Notification Service]
+    
+    %% Database Layer
+    UserService --> UserDB[(👥 User Database)]
+    DataService --> MainDB[(📊 Main Database)]
+    ReportService --> ReportDB[(📈 Report Database)]
+    
+    %% Bidirectional Database Operations
+    UserDB <--> UserService
+    MainDB <--> DataService
+    ReportDB <--> ReportService
+    
+    %% WebSocket Layer
+    BackendServices --> WSGateway[🔌 WebSocket Gateway]
+    WSGateway --> WSAuth[🔐 WS Authentication]
+    WSAuth -->|Authenticated| WSConnections[📡 Active WebSocket<br/>Connections]
+    WSConnections <--> RealTimeUpdates[⚡ Real-time Updates]
+    
+    %% External APIs
+    DataService --> ExternalAPIs[🌐 External APIs]
+    ExternalAPIs --> ThirdPartyAPI1[📡 Payment API]
+    ExternalAPIs --> ThirdPartyAPI2[📡 Analytics API]
+    ExternalAPIs --> ThirdPartyAPI3[📡 Integration API]
+    
+    %% Reporting & Export
+    ReportService --> ReportGenerator[📋 Report Generator]
+    ReportGenerator --> ExportFormats{📄 Export Formats}
+    ExportFormats --> PDFExport[📕 PDF Export]
+    ExportFormats --> CSVExport[📊 CSV Export]
+    ExportFormats --> JSONExport[📝 JSON Export]
+    ExportFormats --> XMLExport[📄 XML Export]
+    
+    %% Logging and Monitoring
+    RateLimit --> SecurityLog[📝 Security Logs]
+    RBACCheck --> AuditLog[📋 Audit Logs]
+    BackendServices --> AppLog[📊 Application Logs]
+    
+    %% Styling for Security Layers
+    classDef securityLayer fill:#ff6b6b,stroke:#d63031,stroke-width:3px,color:#fff
+    classDef authLayer fill:#74b9ff,stroke:#0984e3,stroke-width:2px,color:#fff
+    classDef serviceLayer fill:#55a3ff,stroke:#2d3436,stroke-width:2px,color:#fff
+    classDef dataLayer fill:#00b894,stroke:#00a085,stroke-width:2px,color:#fff
+    classDef exportLayer fill:#fdcb6e,stroke:#e17055,stroke-width:2px,color:#000
+    
+    %% Apply styles
+    class RateLimit,RBACCheck,WSAuth,SecurityLog,AuditLog securityLayer
+    class AuthService,JWT,JWTValidation authLayer
+    class BackendServices,UserService,DataService,ReportService,NotificationService serviceLayer
+    class UserDB,MainDB,ReportDB dataLayer
+    class ReportGenerator,PDFExport,CSVExport,JSONExport,XMLExport exportLayer

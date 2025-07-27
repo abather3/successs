@@ -1,0 +1,63 @@
+flowchart TD
+    A[System Login] --> B{Authentication Valid?}
+    B -->|No| C[Show Error Message]
+    C --> A
+    B -->|Yes| D[Admin Dashboard]
+    D --> E{Select Admin Function}
+    E --> F[User Management]
+    E --> G[System Configuration]
+    E --> H[Reports & Analytics]
+    E --> I[Data Backup]
+    E --> J[Security Settings]
+    
+    F --> K[View All Users]
+    F --> L[Add New User]
+    F --> M[Edit User Permissions]
+    F --> N[Deactivate User]
+    F --> O[Reset User Password]
+    
+    K --> P{User Action Required?}
+    L --> Q[Fill User Details]
+    M --> R[Select User]
+    N --> S[Confirm Deactivation]
+    O --> T[Generate New Password]
+    
+    Q --> U[Set User Role]
+    R --> V[Modify Permissions]
+    S --> W[User Deactivated]
+    T --> X[Send Password to User]
+    
+    U --> Y[Assign User to Department]
+    V --> Z[Save Permission Changes]
+    W --> AA[Update User Status]
+    X --> BB[Password Reset Complete]
+    
+    Y --> CC[Create User Account]
+    Z --> DD[Permissions Updated]
+    AA --> EE[Audit Log Updated]
+    BB --> FF[Notify User]
+    
+    CC --> GG[Send Welcome Email]
+    DD --> HH[Verify Access Rights]
+    EE --> II[Generate Report]
+    FF --> JJ[Close Password Reset]
+    
+    GG --> KK[User Management Complete]
+    HH --> KK
+    II --> KK
+    JJ --> KK
+    P -->|No| KK
+    
+    G --> LL[System Settings Updated]
+    H --> MM[Reports Generated]
+    I --> NN[Backup Completed]
+    J --> OO[Security Rules Applied]
+    
+    LL --> PP[Daily Admin Goal Achieved]
+    MM --> PP
+    NN --> PP
+    OO --> PP
+    KK --> PP
+    
+    PP --> QQ[Logout]
+    QQ --> RR[End Session]

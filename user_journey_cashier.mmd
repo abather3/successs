@@ -1,0 +1,37 @@
+flowchart TD
+    A[System Login] --> B{Authentication Valid?}
+    B -->|No| C[Show Error Message]
+    C --> A
+    B -->|Yes| D[Cashier Dashboard]
+    D --> E{Select Cashier Function}
+    E --> F[Process Payments]
+    E --> G[Issue Receipts]
+    E --> H[Handle Returns]
+    E --> I[Apply Discounts]
+    E --> J[Customer Service]
+    
+    F --> K[Scan Items]
+    K --> L[Calculate Total]
+    L --> M[Accept Payment]
+    M --> N[Complete Sale]
+    
+    G --> O[Print Receipt]
+    H --> P[Verify Product]
+    P --> Q[Process Return]
+    
+    I --> R[Select Discount Type]
+    R --> S[Apply Discount]
+    S --> M
+    
+    J --> T[Assist Customer]
+    T --> U[Resolve Issue]
+    U --> J
+    
+    N --> V{End of Shift?}
+    V -->|No| E
+    V -->|Yes| W[Close Day]
+    W --> X[Count Register]
+    X --> Y[Generate Report]
+    Y --> Z[Logout]
+    Z --> AA[End Session]
+

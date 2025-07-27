@@ -1,0 +1,274 @@
+# Dependency Version Matrix Configuration
+# This file defines the major dependencies and their version ranges for testing
+
+name: "EscaShop Dependency Matrix Testing"
+description: "Comprehensive testing matrix for validating application against multiple dependency versions"
+
+# Major dependencies with current and next major versions
+dependencies:
+  frontend:
+    react:
+      current: "^19.1.0"
+      next_major: "^20.0.0-canary"
+      test_versions:
+        - "19.1.0"
+        - "19.0.0"
+        - "20.0.0-canary.latest"
+      breaking_changes:
+        - "Server components architecture changes"
+        - "New JSX transform requirements"
+        - "Concurrent features enabled by default"
+    
+    react-dom:
+      current: "^19.1.0"
+      next_major: "^20.0.0-canary"
+      test_versions:
+        - "19.1.0"
+        - "19.0.0"
+        - "20.0.0-canary.latest"
+      depends_on: ["react"]
+    
+    react-router-dom:
+      current: "^7.6.3"
+      next_major: "^8.0.0-beta"
+      test_versions:
+        - "7.6.3"
+        - "7.0.0"
+        - "8.0.0-beta.latest"
+      breaking_changes:
+        - "Data API changes"
+        - "Loader/Action function signatures"
+        - "Route component structure"
+    
+    mui:
+      current: "^7.2.0"
+      next_major: "^8.0.0-alpha"
+      test_versions:
+        - "7.2.0"
+        - "7.0.0"
+        - "8.0.0-alpha.latest"
+      breaking_changes:
+        - "Theme structure changes"
+        - "Component prop updates"
+        - "CSS-in-JS engine changes"
+
+  backend:
+    express:
+      current: "^4.18.2"
+      next_major: "^5.0.0"
+      test_versions:
+        - "4.18.2"
+        - "4.17.0"
+        - "5.0.0-beta.1"
+      breaking_changes:
+        - "Middleware signature changes"
+        - "Router API updates"
+        - "Error handling modifications"
+    
+    socket.io:
+      current: "^4.8.1"
+      next_major: "^5.0.0"
+      test_versions:
+        - "4.8.1"
+        - "4.7.0"
+        - "5.0.0-alpha.latest"
+      breaking_changes:
+        - "Connection handling changes"
+        - "Adapter API modifications"
+        - "Namespace behavior updates"
+    
+    socket.io-client:
+      current: "^4.8.1"
+      next_major: "^5.0.0"
+      test_versions:
+        - "4.8.1"
+        - "4.7.0"
+        - "5.0.0-alpha.latest"
+      depends_on: ["socket.io"]
+    
+    pg:
+      current: "^8.7.1"
+      next_major: "^9.0.0"
+      test_versions:
+        - "8.16.3"
+        - "8.7.1"
+        - "8.0.0"
+      breaking_changes:
+        - "Connection pool changes"
+        - "Query result format updates"
+        - "Type system modifications"
+    
+    node:
+      current: "18.x"
+      next_major: "20.x"
+      lts_versions:
+        - "18.19.1"
+        - "20.11.1"
+        - "22.5.1"
+      test_versions:
+        - "18.19.1"
+        - "20.11.1"
+        - "22.5.1"
+
+# Test matrix combinations
+test_matrices:
+  baseline:
+    name: "Current Stable Versions"
+    description: "Test with all current stable versions"
+    combinations:
+      - name: "stable-all"
+        frontend:
+          react: "19.1.0"
+          react-dom: "19.1.0"
+          react-router-dom: "7.6.3"
+          mui: "7.2.0"
+        backend:
+          express: "4.18.2"
+          socket.io: "4.8.1"
+          socket.io-client: "4.8.1"
+          pg: "8.16.3"
+        node_version: "20.11.1"
+  
+  next_major:
+    name: "Next Major Versions"
+    description: "Test with upcoming major versions"
+    combinations:
+      - name: "react-20-preview"
+        frontend:
+          react: "20.0.0-canary.latest"
+          react-dom: "20.0.0-canary.latest"
+          react-router-dom: "7.6.3"
+          mui: "7.2.0"
+        backend:
+          express: "4.18.2"
+          socket.io: "4.8.1"
+          socket.io-client: "4.8.1"
+          pg: "8.16.3"
+        node_version: "20.11.1"
+        expected_issues:
+          - "Potential React 20 breaking changes"
+          - "Component lifecycle updates"
+      
+      - name: "express-5-preview"
+        frontend:
+          react: "19.1.0"
+          react-dom: "19.1.0"
+          react-router-dom: "7.6.3"
+          mui: "7.2.0"
+        backend:
+          express: "5.0.0-beta.1"
+          socket.io: "4.8.1"
+          socket.io-client: "4.8.1"
+          pg: "8.16.3"
+        node_version: "20.11.1"
+        expected_issues:
+          - "Express 5 middleware changes"
+          - "Router API modifications"
+      
+      - name: "socketio-5-preview"
+        frontend:
+          react: "19.1.0"
+          react-dom: "19.1.0"
+          react-router-dom: "7.6.3"
+          mui: "7.2.0"
+          socket.io-client: "5.0.0-alpha.latest"
+        backend:
+          express: "4.18.2"
+          socket.io: "5.0.0-alpha.latest"
+          pg: "8.16.3"
+        node_version: "20.11.1"
+        expected_issues:
+          - "Socket.IO 5 protocol changes"
+          - "Client-server compatibility"
+  
+  mixed_versions:
+    name: "Mixed Version Combinations"
+    description: "Test various combinations to identify incompatibilities"
+    combinations:
+      - name: "react-19-express-5"
+        frontend:
+          react: "19.1.0"
+          react-dom: "19.1.0"
+          react-router-dom: "7.6.3"
+          mui: "7.2.0"
+        backend:
+          express: "5.0.0-beta.1"
+          socket.io: "4.8.1"
+          socket.io-client: "4.8.1"
+          pg: "8.16.3"
+        node_version: "20.11.1"
+      
+      - name: "all-next-major"
+        frontend:
+          react: "20.0.0-canary.latest"
+          react-dom: "20.0.0-canary.latest"
+          react-router-dom: "8.0.0-beta.latest"
+          mui: "8.0.0-alpha.latest"
+          socket.io-client: "5.0.0-alpha.latest"
+        backend:
+          express: "5.0.0-beta.1"
+          socket.io: "5.0.0-alpha.latest"
+          pg: "8.16.3"  # Keep stable for DB
+        node_version: "22.5.1"
+        expected_issues:
+          - "Multiple breaking changes"
+          - "Complex compatibility matrix"
+
+# Test configuration
+test_config:
+  timeout: 30m
+  retry_attempts: 2
+  parallel_jobs: 3
+  test_suites:
+    - unit_tests
+    - integration_tests
+    - e2e_tests
+    - websocket_tests
+  
+  failure_thresholds:
+    unit_tests: 0%      # No unit test failures allowed
+    integration_tests: 5%   # Allow 5% integration test failures
+    e2e_tests: 10%      # Allow 10% e2e test failures
+    websocket_tests: 0%     # No websocket test failures allowed
+  
+  reporting:
+    format: "json"
+    artifacts:
+      - test_results
+      - coverage_reports
+      - performance_metrics
+      - compatibility_matrix
+    
+    notifications:
+      slack_webhook: "${SLACK_WEBHOOK_URL}"
+      email_recipients:
+        - "dev-team@escashop.com"
+      
+# Environment configuration
+environments:
+  test:
+    database: "escashop_test"
+    redis_db: 1
+    port_backend: 5001
+    port_frontend: 3001
+  
+  matrix:
+    database: "escashop_matrix_test"
+    redis_db: 2
+    port_backend: 5002
+    port_frontend: 3002
+
+# Performance benchmarks
+performance_baselines:
+  build_time:
+    frontend: "2m"
+    backend: "1m"
+  
+  test_execution:
+    unit_tests: "30s"
+    integration_tests: "2m"
+    e2e_tests: "5m"
+  
+  application_startup:
+    backend: "10s"
+    frontend: "15s"

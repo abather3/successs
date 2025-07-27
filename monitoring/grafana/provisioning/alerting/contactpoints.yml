@@ -1,0 +1,91 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: default-receiver
+    receivers:
+      - uid: default_email_001
+        type: email
+        settings:
+          addresses: devops@escashop.com
+          subject: "[ESCashop] Alert: {{ .GroupLabels.alertname }}"
+          body: |
+            Alert Details:
+            - Summary: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+            - Description: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+            - Severity: {{ .GroupLabels.severity }}
+            - Time: {{ .CommonLabels.startsAt }}
+            
+            Grafana: http://localhost:3001
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: midnight-critical
+    receivers:
+      - uid: midnight_slack_001
+        type: slack
+        settings:
+          url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+          channel: "#alerts-critical"
+          username: "ESCashop Midnight Monitor"
+          title: "🚨 MIDNIGHT RESET ALERT"
+          text: |
+            **{{ .GroupLabels.alertname }}**
+            
+            **Summary:** {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+            
+            **Details:** {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+            
+            **Time:** {{ .CommonLabels.startsAt }}
+            **Severity:** {{ .GroupLabels.severity }}
+            
+            **Action Required:** Check midnight reset logs immediately
+            **Runbook:** {{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}
+          color: danger
+        disableResolveMessage: false
+      
+      - uid: midnight_email_001
+        type: email
+        settings:
+          addresses: 
+            - devops@escashop.com
+            - oncall@escashop.com
+            - database-team@escashop.com
+          subject: "🚨 [ESCashop CRITICAL] Midnight Reset Failure"
+          body: |
+            CRITICAL ALERT: Midnight Reset Issue Detected
+            
+            Alert: {{ .GroupLabels.alertname }}
+            Time: {{ .CommonLabels.startsAt }}
+            
+            Summary: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+            
+            Description: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+            
+            IMMEDIATE ACTION REQUIRED:
+            1. Check application logs: docker logs -f escashop-backend-prod
+            2. Verify database connectivity
+            3. Check scheduler status: curl http://localhost:5000/api/scheduler/status
+            4. Follow runbook: {{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}
+            
+            Dashboard: http://localhost:3001/d/midnight-reset-dashboard
+            Logs: http://localhost:5601 (Kibana)
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: devops-team
+    receivers:
+      - uid: devops_slack_001
+        type: slack
+        settings:
+          url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+          channel: "#devops-alerts"
+          username: "ESCashop Monitor"
+          title: "⚠️ ESCashop Alert"
+          text: |
+            **{{ .GroupLabels.alertname }}**
+            {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+            
+            Details: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+          color: warning
+        disableResolveMessage: false

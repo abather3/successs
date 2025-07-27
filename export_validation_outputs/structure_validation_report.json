@@ -1,0 +1,46 @@
+{
+  "timestamp": "2025-07-22T11:42:25.952Z",
+  "paymentAmountOrNumberPositioning": {
+    "status": "PASS",
+    "paymentAmountColumn": 19,
+    "orNumberColumn": 20,
+    "sideBySide": true,
+    "distance": 1
+  },
+  "exportFormats": {
+    "excel": {
+      "status": "PASS",
+      "singleCustomer": true,
+      "multiCustomer": true,
+      "librarySupport": true
+    },
+    "pdf": {
+      "status": "PASS",
+      "singleCustomer": true,
+      "multiCustomer": true,
+      "librarySupport": true
+    },
+    "googleSheets": {
+      "status": "PASS",
+      "singleCustomer": true,
+      "multiCustomer": true,
+      "librarySupport": true
+    }
+  },
+  "dataConsistency": {
+    "status": "PASS",
+    "paymentFormatting": true,
+    "priorityFormatting": true,
+    "currencySupport": true,
+    "dateFormatting": true
+  },
+  "routeAvailability": {
+    "status": "PASS",
+    "singleExcel": true,
+    "singlePDF": true,
+    "singleSheets": true,
+    "multiExcel": true,
+    "multiPDF": true,
+    "multiSheets": true
+  }
+}

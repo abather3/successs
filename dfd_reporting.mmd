@@ -1,0 +1,46 @@
+flowchart TD
+    %% External Entities
+    ADMIN[Admin]
+    
+    %% Data Stores
+    DS1[(Transaction Database)]
+    DS2[(Report Database)]
+    DS3[(Audit Log)]
+    
+    %% Processes
+    P1[4.1 Fetch Transaction Data]
+    P2[4.2 Analyze Trends]
+    P3[4.3 Generate Summary Report]
+    P4[4.4 Store Report]
+    P5[4.5 Send Daily Digest]
+    
+    %% Data Flow - Report Generation
+    ADMIN -->|Generate Report Request| P1
+    
+    %% Fetch Transactions
+    P1 -->|Query Transactions| DS1
+    DS1 -->|Transaction Data| P1
+    P1 -->|Raw Transaction Data| P2
+    
+    %% Analyze Trends
+    P2 -->|Statistical Analysis| P3
+    
+    %% Generate Summary Report
+    P3 -->|Formatted Report| P4
+    P3 -->|Report Data| P5
+    
+    %% Store Report
+    P4 -->|Report Record| DS2
+    P4 -->|Report Generation Log| DS3
+    
+    %% Send Daily Digest
+    P5 -->|Email Report| ADMIN
+    
+    %% Styling
+    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef datastore fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef entity fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class P1,P2,P3,P4,P5 process
+    class DS1,DS2,DS3 datastore
+    class ADMIN entity

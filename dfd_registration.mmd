@@ -1,0 +1,60 @@
+flowchart TD
+    %% External Entities
+    CUST[Customer]
+    ADMIN[Admin/Staff]
+    
+    %% Data Stores
+    DS1[(Customer Database)]
+    DS2[(Queue Database)]
+    DS3[(Audit Log)]
+    
+    %% Processes
+    P1[1.1 Validate Customer Info]
+    P2[1.2 Check Duplicate Registration]
+    P3[1.3 Generate Customer ID]
+    P4[1.4 Create Customer Record]
+    P5[1.5 Add to Queue]
+    P6[1.6 Send Confirmation]
+    
+    %% Data Flows - Input from Customer
+    CUST -->|Registration Request| P1
+    
+    %% Validation Process
+    P1 -->|Valid Customer Data| P2
+    P1 -->|Validation Error| CUST
+    
+    %% Duplicate Check
+    P2 -->|Customer Info Query| DS1
+    DS1 -->|Existing Customer Data| P2
+    P2 -->|Duplicate Found Error| CUST
+    P2 -->|No Duplicate Found| P3
+    
+    %% ID Generation
+    P3 -->|Customer Info + Timestamp| P4
+    
+    %% Record Creation
+    P4 -->|New Customer Record| DS1
+    P4 -->|Customer Created Event| DS3
+    P4 -->|Customer Data| P5
+    
+    %% Queue Addition
+    P5 -->|Queue Entry| DS2
+    P5 -->|Queue Position Info| P6
+    
+    %% Confirmation
+    P6 -->|Registration Confirmation| CUST
+    P6 -->|Registration Notification| ADMIN
+    
+    %% Admin Access
+    ADMIN -->|View Registration Reports| DS1
+    ADMIN -->|View Queue Status| DS2
+    ADMIN -->|View Audit Logs| DS3
+    
+    %% Styling
+    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef datastore fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef entity fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class P1,P2,P3,P4,P5,P6 process
+    class DS1,DS2,DS3 datastore
+    class CUST,ADMIN entity

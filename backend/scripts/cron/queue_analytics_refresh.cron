@@ -1,0 +1,49 @@
+# Queue Analytics Materialized View Refresh Cron Jobs
+# 
+# These cron jobs keep the queue analytics data fresh and up-to-date
+# for optimal reporting performance.
+#
+# Installation:
+# 1. Copy this file to your server: /etc/cron.d/queue-analytics-refresh
+# 2. Update the PROJECT_PATH variable below
+# 3. Ensure the Node.js environment is properly set up
+# 4. Restart the cron daemon: sudo systemctl restart cron
+
+# Environment variables
+PATH=/usr/local/bin:/usr/bin:/bin
+NODE_ENV=production
+PROJECT_PATH=/path/to/your/escashop/backend
+
+# Refresh analytics data every 15 minutes during business hours (8 AM - 6 PM, Monday-Friday)
+# This ensures near real-time analytics during peak usage
+*/15 8-18 * * 1-5 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js >> /var/log/queue-analytics-refresh.log 2>&1
+
+# Refresh analytics data every hour during off-hours and weekends  
+# Less frequent but keeps data current for morning reports
+0 * * * 0,6 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js >> /var/log/queue-analytics-refresh.log 2>&1
+0 0-7,19-23 * * 1-5 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js >> /var/log/queue-analytics-refresh.log 2>&1
+
+# Full refresh once daily at 1:00 AM
+# This recreates the materialized view completely to ensure data integrity
+0 1 * * * cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js --full >> /var/log/queue-analytics-refresh-full.log 2>&1
+
+# Concurrent refresh every 30 minutes during high-traffic periods (9 AM - 5 PM, Monday-Friday)  
+# Concurrent refresh doesn't block reads, better for production environments
+*/30 9-17 * * 1-5 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js --concurrent >> /var/log/queue-analytics-refresh-concurrent.log 2>&1
+
+# Log rotation - clean up old logs weekly
+0 2 * * 0 find /var/log -name "*queue-analytics*" -type f -mtime +7 -delete
+
+# Health check - verify materialized view is working (optional)
+# 0 */4 * * * cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js --mv-only --concurrent >> /var/log/queue-analytics-health.log 2>&1
+
+# Alternative configurations for different environments:
+
+# High-frequency refresh for very busy systems (every 5 minutes during business hours)
+# */5 8-18 * * 1-5 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js --concurrent
+
+# Low-frequency refresh for smaller systems (every 2 hours)  
+# 0 */2 * * * cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js
+
+# Custom business hours (e.g., 7 AM - 9 PM, 6 days a week including Saturday)
+# */15 7-21 * * 1-6 cd $PROJECT_PATH && node scripts/refresh_queue_analytics.js --concurrent

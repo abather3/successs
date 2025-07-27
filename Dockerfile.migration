@@ -1,0 +1,50 @@
+# Migration-specific Dockerfile for EscaShop
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install PostgreSQL client for database checks
+RUN apk add --no-cache postgresql-client curl
+
+# Copy package files
+COPY package*.json ./
+COPY backend/package*.json ./backend/
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code and migration files
+COPY backend/src ./backend/src
+COPY database ./database
+
+# Build TypeScript
+RUN cd backend && npm run build
+
+# Create migration script
+RUN echo '#!/bin/sh\n\
+echo "🐳 Starting Docker migration process..."\n\
+\n\
+# Wait for database to be ready\n\
+echo "⏳ Waiting for database to be ready..."\n\
+until pg_isready -h postgres -p 5432 -U ${DATABASE_USER:-escashop_user}; do\n\
+  echo "Database is unavailable - sleeping"\n\
+  sleep 2\n\
+done\n\
+echo "✅ Database is ready!"\n\
+\n\
+# Run the Docker-optimized migration\n\
+echo "🚀 Running migrations..."\n\
+node backend/dist/docker-migrate.js\n\
+\n\
+echo "🎉 Migration completed!"\n\
+' > /app/migrate.sh
+
+RUN chmod +x /app/migrate.sh
+
+# Health check to ensure migration completed successfully
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=30s \
+  CMD test -f /tmp/migration-completed || exit 1
+
+# Default command
+CMD ["/app/migrate.sh"]

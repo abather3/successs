@@ -1,0 +1,32 @@
+graph LR
+    subgraph Frontend
+        A[React Component: Dashboard] --> B((Transaction Management))
+        A --> C((Queue Management))
+        D[Auth Context] --> A
+        E[Socket Context] --> A
+    end
+
+    subgraph Backend
+        F[Express Router: /transactions] --> G[Service: Transaction Service]
+        H[Express Router: /payments] --> I[Service: Payment Settlement Service]
+        J[WebSocket Service] --> K[Service: WebSocket Manager]
+        L[Service: Enhanced SMS Service] --> |SMS & Alerts| M
+        O[Express Router: /customers] --> N((Customer Service))
+    end
+
+    subgraph PostgreSQL
+        P[(transactions table)] --> |Store Data| G
+        Q[(customers table)] --> |Store Data| N
+    end
+
+    subgraph External_Services
+        M[SMS API]
+        R[Google Sheets API]
+    end
+
+    B --> |Fetch & Send| F
+    C --> |Fetch & Send| O
+    G --> |Confirm & Update| P
+    N --> |Record and Update| Q
+    L -.-> R[Google Sheets]
+    K --> |Real-time Updates| E

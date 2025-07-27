@@ -1,0 +1,121 @@
+graph TD
+    %% Queue Management Lifecycle - From "Call Next" to Complete Service
+    
+    %% External Entities
+    STAFF[Staff/Teller 👤]
+    CUST[Customer 👥]
+    DISPLAY[Display Monitor 📺]
+    AUDIO[Audio System 🔊]
+    WEBSOCKET[WebSocket Clients 🌐]
+    SMS[SMS Provider 📱]
+    
+    %% Data Stores
+    DS1[(DS1: Queue Database<br/>- customer status<br/>- queue position<br/>- timestamps)]
+    DS2[(DS2: Service Counter DB<br/>- counter assignment<br/>- active status<br/>- current customer)]
+    DS3[(DS3: Customer Database<br/>- customer details<br/>- phone numbers<br/>- priority flags)]
+    DS4[(DS4: Activity Log<br/>- queue events<br/>- analytics data<br/>- audit trail)]
+    
+    %% === INITIATION PHASE ===
+    STAFF -->|1. "Call Next" Request<br/>POST /api/queue/call-next<br/>{counterId}| P1[P1: Get Current Queue Status<br/>🔍 Query waiting customers<br/>📊 Calculate priority scores<br/>⏱️ Check wait times]
+    
+    %% P1 Process Flow
+    P1 -->|Queue Status Query<br/>SELECT * FROM customers<br/>WHERE queue_status='waiting'<br/>ORDER BY priority| DS1
+    DS1 -->|Current Queue Data<br/>• Customer list<br/>• Priority flags<br/>• Timestamps| P1
+    
+    %% Decision Point - Customers Available
+    P1 -->|✅ Available Customers List<br/>Sorted by priority & time| P2[P2: Select Next Customer<br/>🎯 Priority algorithm<br/>📋 Customer selection<br/>📞 Contact details]
+    P1 -->|❌ No Customers Available<br/>Empty queue response| STAFF
+    
+    %% === SELECTION PHASE ===
+    P2 -->|Customer Selection Query<br/>GET customer details| DS3
+    DS3 -->|Customer Details<br/>• Name & contact<br/>• Priority flags<br/>• Service history| P2
+    
+    P2 -->|Selected Customer Info<br/>• Customer ID<br/>• Priority status<br/>• Wait time| P3[P3: Update Queue Position<br/>📝 Status = 'serving'<br/>⏰ Timestamp updates<br/>📊 Position tracking]
+    P2 -->|Customer Priority Rules<br/>• Senior citizen: +1000<br/>• PWD: +900<br/>• Pregnant: +800| P4[P4: Assign to Counter<br/>🏪 Counter assignment<br/>🔄 Status updates<br/>👤 Staff linkage]
+    
+    %% === UPDATE PHASE ===
+    P3 -->|Position Update<br/>UPDATE customers SET<br/>queue_status='serving'<br/>updated_at=NOW()| DS1
+    P3 -->|Queue Update Event<br/>INSERT INTO queue_events<br/>event_type='called'<br/>analytics data| DS4
+    P3 -->|Customer Call Data<br/>• Customer info<br/>• Call timestamp<br/>• Counter assignment| P5[P5: Notify Customer<br/>🔔 Multi-channel alerts<br/>📱 SMS notification<br/>🔊 Audio announcement<br/>📺 Display update<br/>🌐 WebSocket broadcast]
+    
+    P4 -->|Counter Assignment<br/>UPDATE counters SET<br/>current_customer_id<br/>updated_at=NOW()| DS2
+    P4 -->|Assignment Confirmation<br/>Counter + Customer link| P5
+    
+    %% === NOTIFICATION PHASE ===
+    P5 -->|🔊 Audio Announcement<br/>TTS: "Customer [Name]<br/>Token #[Number]<br/>Counter [Name]"| AUDIO
+    P5 -->|📺 Display Message<br/>Visual notification:<br/>"NOW SERVING<br/>Token #[Number]<br/>Counter [Name]"| DISPLAY
+    P5 -->|📱 SMS Notification<br/>Template: "queue_position"<br/>Hi [Name], please proceed<br/>to Counter [Name] now"| SMS
+    P5 -->|🌐 WebSocket Update<br/>Real-time broadcast:<br/>customer_called event<br/>queue status update| WEBSOCKET
+    P5 -->|✅ Assignment Confirmation<br/>Success notification<br/>to requesting staff| STAFF
+    
+    %% === CUSTOMER RESPONSE PHASE ===
+    CUST -->|👋 Arrival Confirmation<br/>Physical presence<br/>or check-in| STAFF
+    CUST -->|📋 Service Request Details<br/>Specific requirements<br/>or clarifications| STAFF
+    
+    %% === SERVICE COMPLETION PHASE ===
+    STAFF -->|✅ Service Complete<br/>POST /api/queue/complete<br/>{customerId, counterId}| P6[P6: Update Service Status<br/>📝 Status = 'completed'<br/>⏱️ Service time tracking<br/>🏪 Counter cleanup]
+    
+    P6 -->|Service Status Update<br/>UPDATE customers SET<br/>queue_status='completed'<br/>updated_at=NOW()| DS1
+    P6 -->|Counter Status Update<br/>UPDATE counters SET<br/>current_customer_id=NULL<br/>available for next| DS2
+    P6 -->|Service Complete Event<br/>INSERT INTO queue_events<br/>event_type='served'<br/>service_time calculation| DS4
+    P6 -->|📊 Service Summary<br/>Completion confirmation<br/>Service duration<br/>Performance metrics| STAFF
+    
+    %% WebSocket notification for completion
+    P6 -->|🌐 WebSocket Update<br/>customer_completed event<br/>Counter now available| WEBSOCKET
+    
+    %% === NO-SHOW HANDLING PHASE ===
+    STAFF -->|🚫 Customer No-Show<br/>POST /api/queue/cancel<br/>{customerId, reason}| P7[P7: Handle No-Show<br/>⚠️ Status = 'cancelled'<br/>📝 Reason logging<br/>🔄 Re-queue option]
+    
+    P7 -->|No-Show Status Update<br/>UPDATE customers SET<br/>queue_status='cancelled'<br/>remarks='No-show: [reason]'| DS1
+    P7 -->|Counter Status Update<br/>UPDATE counters SET<br/>current_customer_id=NULL<br/>available for next| DS2
+    P7 -->|No-Show Event<br/>INSERT INTO queue_events<br/>event_type='cancelled'<br/>reason='no_show'| DS4
+    P7 -->|🔄 Re-queue Option<br/>Option to call again<br/>or reschedule| P1
+    
+    %% === ANALYTICS & MONITORING ===
+    DS4 -->|📊 Analytics Processing<br/>QueueAnalyticsService<br/>• Wait time metrics<br/>• Service time tracking<br/>• Peak hour analysis<br/>• Counter performance| ANALYTICS[Analytics Dashboard 📈]
+    
+    %% === ERROR HANDLING & FALLBACK ===
+    P5 -.->|🚨 SMS Failure<br/>Provider unavailable<br/>Invalid phone number| SMS_FALLBACK[SMS Fallback<br/>🔄 Retry mechanism<br/>📋 Manual notification<br/>📞 Phone call option]
+    
+    P5 -.->|🚨 Audio System Down<br/>Hardware failure<br/>Volume issues| AUDIO_FALLBACK[Audio Fallback<br/>📢 Manual announcement<br/>🔔 Alternative alerts]
+    
+    %% === REAL-TIME SYNC ===
+    WEBSOCKET -->|🔄 Real-time Updates<br/>• Queue position changes<br/>• Customer called events<br/>• Service completions<br/>• Counter status| DISPLAY
+    
+    %% === NOTIFICATION TEMPLATES ===
+    SMS_TEMPLATES[SMS Templates 📝<br/>• queue_position: Position updates<br/>• ready_to_serve: Call notification<br/>• delay_notification: Wait time<br/>• pickup_reminder: Service ready]
+    SMS --> SMS_TEMPLATES
+    
+    %% === STYLING ===
+    classDef processNode fill:#e1f5fe,stroke:#01579b,stroke-width:3px,color:#000
+    classDef datastoreNode fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,color:#000
+    classDef entityNode fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px,color:#000
+    classDef systemNode fill:#fff3e0,stroke:#e65100,stroke-width:3px,color:#000
+    classDef analyticsNode fill:#f0f4c3,stroke:#827717,stroke-width:3px,color:#000
+    classDef fallbackNode fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000,stroke-dasharray:5,5
+    
+    class P1,P2,P3,P4,P5,P6,P7 processNode
+    class DS1,DS2,DS3,DS4 datastoreNode  
+    class STAFF,CUST entityNode
+    class DISPLAY,AUDIO,WEBSOCKET,SMS systemNode
+    class ANALYTICS,SMS_TEMPLATES analyticsNode
+    class SMS_FALLBACK,AUDIO_FALLBACK fallbackNode
+
+    %% === PROCESS ANNOTATIONS ===
+    P1_NOTE["🔍 P1 Details:<br/>• Check queue_status='waiting'<br/>• Apply priority algorithm<br/>• Calculate wait times<br/>• Validate counter availability"]
+    P2_NOTE["🎯 P2 Details:<br/>• SELECT TOP 1 with priority<br/>• Senior: +1000, PWD: +900, Pregnant: +800<br/>• FIFO within same priority<br/>• Fetch customer contact info"]
+    P3_NOTE["📝 P3 Details:<br/>• UPDATE queue_status='serving'<br/>• Record call timestamp<br/>• Track position in queue<br/>• Generate analytics event"]
+    P4_NOTE["🏪 P4 Details:<br/>• Link customer to counter<br/>• Update counter status<br/>• Set staff assignment<br/>• Validate counter availability"]
+    P5_NOTE["🔔 P5 Details:<br/>• Multi-channel notifications<br/>• SMS via Vonage API<br/>• WebSocket real-time updates<br/>• Audio TTS announcement<br/>• Display visual updates"]
+    P6_NOTE["✅ P6 Details:<br/>• Mark service complete<br/>• Calculate service duration<br/>• Free up counter<br/>• Update analytics<br/>• Performance tracking"]
+    P7_NOTE["🚫 P7 Details:<br/>• Handle no-show scenario<br/>• Log cancellation reason<br/>• Free up counter<br/>• Option to re-queue<br/>• Analytics tracking"]
+    
+    P1 -.-> P1_NOTE
+    P2 -.-> P2_NOTE  
+    P3 -.-> P3_NOTE
+    P4 -.-> P4_NOTE
+    P5 -.-> P5_NOTE
+    P6 -.-> P6_NOTE
+    P7 -.-> P7_NOTE
+    
+    class P1_NOTE,P2_NOTE,P3_NOTE,P4_NOTE,P5_NOTE,P6_NOTE,P7_NOTE processNode

@@ -1,0 +1,64 @@
+flowchart TD
+    %% External Entities
+    CUST[Customer]
+    BANK[Bank]
+    ADMIN[Admin/Staff]
+    
+    %% Data Stores
+    DS1[(Payment Gateway)]
+    DS2[(Transaction Database)]
+    DS3[(Customer Database)]
+    DS4[(Audit Log)]
+    
+    %% Processes
+    P1[3.1 Validate Payment Info]
+    P2[3.2 Authorize Transaction]
+    P3[3.3 Process Payment]
+    P4[3.4 Record Transaction]
+    P5[3.5 Notify Customer]
+    P6[3.6 Settlement Process]
+    
+    %% Data Flows - Payment Initiation
+    CUST -->|Initiate Payment| P1
+    
+    %% Validation Process
+    P1 -->|Valid Payment Data| P2
+    P1 -->|Validation Error| CUST
+    
+    %% Authorization
+    P2 -->|Authorization Request| DS1
+    DS1 -->|Authorization Status| P2
+    P2 -->|Authorization Failed| CUST
+    P2 -->|Authorization Success| P3
+    
+    %% Payment Processing
+    P3 -->|Payment Processing| BANK
+    BANK -->|Payment Confirmation| P3
+    P3 -->|Payment Processed| P4
+    
+    %% Transaction Recording
+    P4 -->|Transaction Record| DS2
+    P4 -->|Transaction Log| DS4
+    P4 -->|Transaction Summary| P5
+    
+    %% Customer Notification
+    P5 -->|Payment Confirmation| CUST
+    P5 -->|Payment Notification| ADMIN
+    
+    %% Settlement Process
+    P6 -->|Settlement Instructions| BANK
+    BANK -->|Settlement Status| P6
+    P6 -->|Settlement Summary| DS4
+    
+    %% Admin Access
+    ADMIN -->|View Transactions| DS2
+    ADMIN -->|View Audit Logs| DS4
+    
+    %% Styling
+    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef datastore fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef entity fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class P1,P2,P3,P4,P5,P6 process
+    class DS1,DS2,DS3,DS4 datastore
+    class CUST,BANK,ADMIN entity

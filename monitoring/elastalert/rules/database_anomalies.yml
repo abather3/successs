@@ -1,0 +1,54 @@
+name: Database Anomalies
+type: frequency
+index: escashop-database-*
+num_events: 3
+timeframe:
+  minutes: 5
+
+filter:
+  - query:
+      query_string:
+        query: "tags:db_error OR (level:ERROR AND type:database)"
+
+alert:
+  - "email"
+  - "slack"
+
+email:
+  - "devops@escashop.com"
+  - "database-team@escashop.com"
+
+slack:
+  slack_webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+  slack_channel_override: "#database-alerts"
+  slack_username_override: "Database Monitor"
+
+alert_text: |
+  Database anomalies detected
+  
+  Error count: {0}
+  Time window: {1}
+  
+  Common errors:
+  {2}
+  
+  Please check database health and performance.
+
+alert_text_args:
+  - num_matches
+  - timeframe
+  - top_count_keys
+
+include:
+  - level
+  - message
+  - timestamp
+  - process_id
+  - tags
+
+top_count_keys:
+  - level
+  - process_id
+
+realert:
+  minutes: 10
