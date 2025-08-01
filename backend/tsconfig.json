@@ -20,8 +20,11 @@
   "exclude": [
     "node_modules", 
     "dist", 
-    "src/__tests__/**/*",
+"src/__tests__/**/*",
     "**/*.test.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "src/examples/**/*",
+    "src/services/monitoring-original.ts",
+    "src/services/cachedQueue.ts"
   ]
 }

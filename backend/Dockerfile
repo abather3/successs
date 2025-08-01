@@ -1,4 +1,4 @@
-# Minimal Railway Docker build
+# Pre-built Railway Docker deployment
 FROM node:20-alpine
 
 WORKDIR /app
@@ -6,21 +6,21 @@ WORKDIR /app
 # Install system dependencies
 RUN apk add --no-cache curl postgresql-client tzdata
 
-# Copy package files and install dependencies
+# Copy package files and install production dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
-# Copy source and build
-COPY . .
-# Install dev dependencies needed for build, then build
-RUN npm install typescript @types/node && npx tsc -p tsconfig.json
+# Copy pre-built application files
+COPY dist ./dist
+COPY src ./src
+COPY tsconfig*.json ./
 
 # Set up environment
 ENV NODE_ENV=production
 ENV PORT=5000
 
 # Create directories
-RUN mkdir -p logs uploads dist
+RUN mkdir -p logs uploads
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
