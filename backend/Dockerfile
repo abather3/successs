@@ -49,10 +49,14 @@ ENV NODE_ENV=production
 # Copy production dependencies
 COPY --from=production-deps /app/node_modules ./node_modules
 
-# Copy built application
+# Copy built application and necessary files
 COPY --from=build /app/dist ./dist
-COPY package*.json ./
-COPY src/migrate.ts ./src/
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/src ./src
+COPY --from=build /app/tsconfig*.json ./
+
+# Set up Railway-compatible port
+ENV PORT=5000
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/logs /app/uploads /app/dist && \
@@ -61,9 +65,9 @@ RUN mkdir -p /app/logs /app/uploads /app/dist && \
 # Switch to non-root user
 USER node
 
-# Health check
+# Health check with dynamic port
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-5000}/health || exit 1
 
-EXPOSE 5000
+EXPOSE $PORT
 CMD ["npm", "start"]

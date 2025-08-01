@@ -1,5 +1,6 @@
 [build]
-builder = "NIXPACKS"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
@@ -8,4 +9,3 @@ restartPolicyType = "ON_FAILURE"
 
 [env]
 NODE_ENV = "production"
-NIXPACKS_NODE_VERSION = "20"
