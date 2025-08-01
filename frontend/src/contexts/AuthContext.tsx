@@ -2,10 +2,13 @@ import React, { createContext, useContext, useReducer, useEffect, ReactNode } fr
 import { User, AuthResponse } from '../types';
 import { authService, TokenManager } from '../services/authService';
 
-// Debug helper to log with timestamp
+// Production-safe debug logging - disabled by default
 const logWithTimestamp = (message: string, data?: any) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [AUTH_CONTEXT] ${message}`, data || '');
+  // Only log in development if DEBUG_AUTH is explicitly enabled
+  if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_DEBUG_AUTH === 'true') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AUTH_CONTEXT] ${message}`, data || '');
+  }
 };
 
 interface AuthState {

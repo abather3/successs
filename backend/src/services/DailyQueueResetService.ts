@@ -86,10 +86,19 @@ export class DailyQueueResetService {
   }
   
   /**
-   * Create a snapshot of current queue state for historical records
+   * Create a snapshot of previous day's queue state for historical records
    */
-  private static async createDailySnapshot(client: any): Promise<DailyQueueSnapshot> {
-    const today = new Date().toISOString().split('T')[0];
+  public static async createDailySnapshot(client: any): Promise<DailyQueueSnapshot> {
+    // Get yesterday's date to capture the completed day's data
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    console.log(`[SNAPSHOT] Creating snapshot for date: ${yesterdayStr}`);
+    
+    // First, let's check if we have any customers for yesterday
+    const customerCountResult = await client.query('SELECT COUNT(*) as count FROM customers WHERE DATE(created_at) = $1', [yesterdayStr]);
+    console.log(`[SNAPSHOT] Found ${customerCountResult.rows[0].count} customers for ${yesterdayStr}`);
     
     const snapshotQuery = `
       WITH queue_stats AS (
@@ -142,20 +151,30 @@ export class DailyQueueResetService {
         COALESCE(qs.priority_customers, 0) as priority_customers,
         COALESCE(wts.avg_wait_time, 0) as avg_wait_time,
         COALESCE(ps.peak_queue_length, 0) as peak_queue_length,
-        EXTRACT(HOUR FROM CURRENT_TIMESTAMP) as operating_hours
+        24 as operating_hours -- Full 24-hour day for completed day
       FROM queue_stats qs
       CROSS JOIN wait_time_stats wts
       CROSS JOIN peak_stats ps
     `;
     
-    const result = await client.query(snapshotQuery, [today]);
-    return result.rows[0];
+    const result = await client.query(snapshotQuery, [yesterdayStr]);
+    const snapshot = result.rows[0];
+    
+    console.log(`[SNAPSHOT] Generated snapshot for ${yesterdayStr}:`, {
+      totalCustomers: snapshot.total_customers,
+      completedCustomers: snapshot.completed_customers,
+      waitingCustomers: snapshot.waiting_customers,
+      avgWaitTime: snapshot.avg_wait_time,
+      peakQueueLength: snapshot.peak_queue_length
+    });
+    
+    return snapshot;
   }
   
   /**
    * Archive current queue data to historical tables
    */
-  private static async archiveQueueData(client: any, snapshot: DailyQueueSnapshot): Promise<void> {
+  public static async archiveQueueData(client: any, snapshot: DailyQueueSnapshot): Promise<void> {
     // Create daily queue history record
     await client.query(`
       INSERT INTO daily_queue_history (
@@ -221,10 +240,15 @@ export class DailyQueueResetService {
   /**
    * Update analytics with final daily metrics
    */
-  private static async updateFinalDailyAnalytics(client: any, snapshot: DailyQueueSnapshot): Promise<void> {
-    // Skip analytics update for now to avoid missing table errors
-    // TODO: Implement proper analytics tables schema
-    console.log('Skipping analytics update (not implemented)');
+  public static async updateFinalDailyAnalytics(client: any, snapshot: DailyQueueSnapshot): Promise<void> {
+    // Enable analytics update since tables exist
+    try {
+      await QueueAnalyticsService.updateDailySummary(snapshot.date);
+      console.log('Analytics updated with final daily metrics');
+    } catch (error) {
+      console.error('Failed to update analytics:', error);
+      // Don't fail the entire reset if analytics fails
+    }
     
     // Update display monitor history for analytics dashboard
     const avgWaitTime = isNaN(snapshot.avgWaitTime) ? 0 : Math.round(snapshot.avgWaitTime);
@@ -377,10 +401,17 @@ export class DailyQueueResetService {
   static async getDailyHistory(days: number = 30): Promise<DailyQueueSnapshot[]> {
     const query = `
       SELECT 
-        date, total_customers, waiting_customers, serving_customers,
-        processing_customers, completed_customers, cancelled_customers,
-        priority_customers, avg_wait_time_minutes as avg_wait_time,
-        peak_queue_length, operating_hours
+        date, 
+        total_customers as "totalCustomers", 
+        waiting_customers as "waitingCustomers", 
+        serving_customers as "servingCustomers",
+        processing_customers as "processingCustomers", 
+        completed_customers as "completedCustomers", 
+        cancelled_customers as "cancelledCustomers",
+        priority_customers as "priorityCustomers", 
+        avg_wait_time_minutes as "avgWaitTime",
+        peak_queue_length as "peakQueueLength", 
+        operating_hours as "operatingHours"
       FROM daily_queue_history
       WHERE date >= CURRENT_DATE - INTERVAL '${days} days'
       ORDER BY date DESC

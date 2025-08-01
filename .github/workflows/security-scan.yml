@@ -1,0 +1,288 @@
+name: Security Vulnerability Scanning
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - npm-audit
+          - snyk
+          - eslint-security
+      severity_threshold:
+        description: 'Minimum severity to report (low, moderate, high, critical)'
+        required: false
+        default: 'moderate'
+        type: choice
+        options:
+          - low
+          - moderate
+          - high
+          - critical
+  schedule:
+    # Daily security scan at 3 AM UTC
+    - cron: '0 3 * * *'
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'package*.json'
+      - 'backend/package*.json'
+      - 'frontend/package*.json'
+      - '.github/workflows/security-scan.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'package*.json'
+      - 'backend/package*.json'
+      - 'frontend/package*.json'
+
+env:
+  NODE_VERSION: '20.11.1'
+  SEVERITY_THRESHOLD: ${{ github.event.inputs.severity_threshold || 'moderate' }}
+
+jobs:
+  # Comprehensive security scanning across all workspaces
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    outputs:
+      critical-found: ${{ steps.process-results.outputs.critical-found }}
+      high-found: ${{ steps.process-results.outputs.high-found }}
+      moderate-found: ${{ steps.process-results.outputs.moderate-found }}
+      report-path: ${{ steps.process-results.outputs.report-path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Create security reports directory
+        run: |
+          mkdir -p security-reports
+          echo "SECURITY_REPORT_DIR=$(pwd)/security-reports" >> $GITHUB_ENV
+
+      # Root workspace security scan
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run npm audit (root)
+        continue-on-error: true
+        run: |
+          echo "🔍 Running npm audit for root workspace..."
+          npm audit --json --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/root-audit.json || true
+          npm audit --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/root-audit.txt || true
+
+      # Backend security scan
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Run npm audit (backend)
+        continue-on-error: true
+        run: |
+          echo "🔍 Running npm audit for backend..."
+          cd backend
+          npm audit --json --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/backend-audit.json || true
+          npm audit --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/backend-audit.txt || true
+
+      - name: Run ESLint security rules (backend)
+        continue-on-error: true
+        run: |
+          echo "🔍 Running ESLint security scan for backend..."
+          cd backend
+          npm run lint:security -- --format json --output-file ${{ env.SECURITY_REPORT_DIR }}/backend-eslint-security.json || true
+          npm run lint:security || true
+
+      # Frontend security scan
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run npm audit (frontend)
+        continue-on-error: true
+        run: |
+          echo "🔍 Running npm audit for frontend..."
+          cd frontend
+          npm audit --json --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/frontend-audit.json || true
+          npm audit --audit-level=${{ env.SEVERITY_THRESHOLD }} > ${{ env.SECURITY_REPORT_DIR }}/frontend-audit.txt || true
+
+      # Snyk security scan (if token is available)
+      - name: Run Snyk security scan
+        if: env.SNYK_TOKEN != ''
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          echo "🔍 Running Snyk security scan..."
+          npx snyk@latest auth $SNYK_TOKEN
+          
+          # Scan root
+          npx snyk@latest test --json > ${{ env.SECURITY_REPORT_DIR }}/root-snyk.json || true
+          
+          # Scan backend
+          cd backend
+          npx snyk@latest test --json > ${{ env.SECURITY_REPORT_DIR }}/backend-snyk.json || true
+          
+          # Scan frontend
+          cd ../frontend
+          npx snyk@latest test --json > ${{ env.SECURITY_REPORT_DIR }}/frontend-snyk.json || true
+
+      # Process and analyze all security scan results
+      - name: Process security scan results
+        id: process-results
+        run: |
+          node scripts/process-security-results.js "${{ env.SECURITY_REPORT_DIR }}" "${{ env.SEVERITY_THRESHOLD }}"
+
+      # Upload security reports as artifacts
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports-${{ github.run_number }}
+          path: |
+            security-reports/
+            security-summary.md
+            security-dashboard.html
+          retention-days: 30
+
+      # Comment on PR with security summary
+      - name: Comment PR with security results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './security-summary.md';
+            
+            if (fs.existsSync(path)) {
+              const summary = fs.readFileSync(path, 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🔒 Security Vulnerability Scan Results\n\n${summary}`
+              });
+            }
+
+  # Alert workflow for critical security vulnerabilities
+  security-alert:
+    name: Security Alert
+    if: needs.security-scan.outputs.critical-found == 'true' || needs.security-scan.outputs.high-found == 'true'
+    needs: security-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download security reports
+        uses: actions/download-artifact@v4
+        with:
+          name: security-scan-reports-${{ github.run_number }}
+          path: security-reports/
+
+      - name: Create security issue
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summaryPath = './security-summary.md';
+            
+            if (fs.existsSync(summaryPath)) {
+              const summary = fs.readFileSync(summaryPath, 'utf8');
+              const criticalFound = '${{ needs.security-scan.outputs.critical-found }}' === 'true';
+              const highFound = '${{ needs.security-scan.outputs.high-found }}' === 'true';
+              
+              const severity = criticalFound ? 'CRITICAL' : 'HIGH';
+              const labels = criticalFound 
+                ? ['security', 'critical', 'vulnerability', 'urgent']
+                : ['security', 'high', 'vulnerability'];
+              
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 ${severity} Security Vulnerabilities Detected - ${new Date().toISOString().split('T')[0]}`,
+                body: `## Security Vulnerability Alert\n\n` + 
+                      `**Severity**: ${severity}\n` +
+                      `**Detection Date**: ${new Date().toLocaleString()}\n` +
+                      `**Scan Type**: Automated Daily Scan\n\n` +
+                      `${summary}\n\n` +
+                      `## Immediate Actions Required\n\n` +
+                      (criticalFound ? 
+                        '⚠️ **CRITICAL vulnerabilities found - immediate patching required!**\n\n' :
+                        '⚠️ **HIGH severity vulnerabilities found - patching recommended within 7 days**\n\n') +
+                      `1. Review the detailed scan results in the workflow artifacts\n` +
+                      `2. Update affected dependencies immediately\n` +
+                      `3. Test applications thoroughly after updates\n` +
+                      `4. Deploy security patches to production\n` +
+                      `5. Close this issue once vulnerabilities are resolved\n\n` +
+                      `## Workflow Run\n\n` +
+                      `[View detailed results](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+                labels: labels,
+                assignees: ['security-team']
+              });
+            }
+
+      - name: Send Slack notification for critical vulnerabilities
+        if: needs.security-scan.outputs.critical-found == 'true'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: |
+            🚨 **CRITICAL SECURITY ALERT** 🚨
+            
+            Critical security vulnerabilities have been detected in the EscaShop codebase!
+            
+            **Repository**: ${{ github.repository }}
+            **Branch**: ${{ github.ref_name }}
+            **Detection Time**: ${{ github.event.head_commit.timestamp }}
+            
+            **IMMEDIATE ACTION REQUIRED**:
+            1. Review security scan results
+            2. Apply security patches immediately
+            3. Deploy fixes to production ASAP
+            
+            [View Detailed Results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send email notification for high/critical vulnerabilities
+        if: needs.security-scan.outputs.critical-found == 'true' || needs.security-scan.outputs.high-found == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "🚨 Security Alert: ${{ needs.security-scan.outputs.critical-found == 'true' && 'CRITICAL' || 'HIGH' }} Vulnerabilities Detected in ${{ github.repository }}"
+          body: |
+            Security vulnerabilities have been detected in the EscaShop repository.
+            
+            Severity: ${{ needs.security-scan.outputs.critical-found == 'true' && 'CRITICAL' || 'HIGH' }}
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Detection Time: ${{ github.event.head_commit.timestamp }}
+            
+            Please review the security scan results and take immediate action:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            This is an automated security alert from the EscaShop CI/CD pipeline.
+          to: ${{ secrets.SECURITY_ALERT_EMAIL }}
+          from: "EscaShop Security <noreply@escashop.com>"

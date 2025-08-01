@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop-postgres
+    environment:
+      POSTGRES_DB: escashop_prod
+      POSTGRES_USER: escashop_user
+      POSTGRES_PASSWORD: postgres_secure_password_123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/database/complete-migration.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./src/database/migrations/create_daily_queue_history_tables.sql:/docker-entrypoint-initdb.d/02-daily-history.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U escashop_user -d escashop_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - escashop-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: escashop-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - escashop-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: escashop-backend
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://escashop_user:postgres_secure_password_123@postgres:5432/escashop_prod
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: production-jwt-secret-256-bits-minimum-length-for-secure-authentication
+      JWT_REFRESH_SECRET: production-refresh-secret-256-bits-minimum-different-from-jwt
+      SMS_PROVIDER: vonage
+      SMS_FROM: EscaShop
+      PORT: 5000
+      LOG_LEVEL: info
+      LOG_TO_FILE: true
+      CORS_ORIGINS: "*"
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      HEALTH_CHECK_ENABLED: true
+      METRICS_ENABLED: true
+      MAX_FILE_SIZE: 10485760
+      UPLOAD_PATH: /app/uploads
+      SESSION_SECRET: production-session-secret-for-secure-session-management
+      SESSION_TIMEOUT: 3600000
+      TZ: Asia/Manila
+      WEBSOCKET_ENABLED: true
+      WEBSOCKET_CORS_ORIGIN: "*"
+      DB_POOL_MIN: 2
+      DB_POOL_MAX: 20
+      DB_POOL_IDLE_TIMEOUT: 30000
+      DB_POOL_CONNECTION_TIMEOUT: 60000
+    ports:
+      - "5000:5000"
+    volumes:
+      - backend_logs:/app/logs
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - escashop-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  escashop-network:
+    driver: bridge

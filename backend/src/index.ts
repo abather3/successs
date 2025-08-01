@@ -1,4 +1,37 @@
+// Must be imported before any other modules for proper instrumentation
+// Development: Commenting out optional monitoring imports
+// import * as Sentry from '@sentry/node';
+// import tracer from 'dd-trace';
 import 'dotenv/config';
+
+// Initialize monitoring before anything else
+// Development: Commenting out Sentry initialization
+// Sentry.init({
+//   dsn: process.env.SENTRY_DSN || '', // Set via environment variable
+//   tracesSampleRate: 1.0, // Capture 100% of transactions
+//   environment: process.env.NODE_ENV || 'development',
+// });
+
+// Initialize Datadog Tracer
+// Development: Commenting out Datadog tracer
+// tracer.init({
+//   service: 'escashop-backend',
+//   env: process.env.NODE_ENV || 'development',
+// });
+
+// Configure Express tracing
+// tracer.use('express', {
+//   service: 'escashop-express',
+// });
+
+// Configure PostgreSQL tracing
+// tracer.use('pg', {
+//   service: 'escashop-postgres',
+// });
+
+// Note: Socket.IO tracing is handled automatically by DataDog
+
+// Now import other modules
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -22,12 +55,36 @@ import { authenticateToken } from './middleware/auth';
 import { setupWebSocketHandlers } from './services/websocket';
 import { errorHandler } from './middleware/errorHandler';
 import { DailyQueueScheduler } from './services/DailyQueueScheduler';
+import { monitoringService } from './services/monitoring';
+import { enhancedRollbackSystem } from './services/enhancedRollback';
 
 const app: express.Application = express();
 const server = createServer(app);
+
+// Parse comma-separated FRONTEND_URL and define allowed origins
+const frontendUrls = (config.FRONTEND_URL || 'http://localhost:3000').split(',').map(url => url.trim());
+const allowedOrigins = [
+  ...frontendUrls,
+  'http://localhost',
+  'http://localhost:80',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1'
+];
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Use same allowed origins as Express CORS
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      console.log(`🚫 Socket.IO CORS blocked origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'), false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
@@ -44,12 +101,27 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Middleware
+app.use(monitoringService.createAPIMonitoringMiddleware());
 app.use(generalLimiter);
+
+// CORS configuration that handles nginx proxy correctly
 app.use(cors({
-  origin: config.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Log unauthorized origin for debugging
+    console.log(`🚫 CORS blocked origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'), false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
   optionsSuccessStatus: 200
 }));
 app.use(cookieParser());
@@ -59,6 +131,49 @@ app.use(express.urlencoded({ extended: true }));
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Monitoring dashboard endpoint
+app.get('/api/monitoring/dashboard', async (req, res) => {
+  try {
+    const healthStatus = await monitoringService.getHealthStatus();
+    res.json(healthStatus);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get monitoring status' });
+  }
+});
+
+// Rollback system status endpoint
+app.get('/api/monitoring/rollback/status', (req, res) => {
+  try {
+    const status = enhancedRollbackSystem.getStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get rollback status' });
+  }
+});
+
+// Manual rollback trigger endpoint (admin only)
+app.post('/api/monitoring/rollback/trigger', authenticateToken, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason) {
+      return res.status(400).json({ error: 'Rollback reason is required' });
+    }
+    
+    await enhancedRollbackSystem.manualRollback(reason);
+    res.json({ message: 'Manual rollback initiated', reason });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Add general API logging middleware before routes
+app.use('/api', (req, res, next) => {
+  console.log(`API Request: ${req.method} ${req.originalUrl}`);
+  console.log(`API Path: ${req.path}`);
+  console.log(`API Auth Header: ${req.headers.authorization ? 'Present' : 'Missing'}`);
+  next();
 });
 
 // Sensitive routes with stricter limits
@@ -163,10 +278,22 @@ async function startServer() {
       // Continue without scheduler rather than crashing the server
     }
     
+    // Start alert checking interval
+    setInterval(() => {
+      monitoringService.checkAlertThresholds();
+    }, 60000); // Check every minute
+    
+    // Start rollback trigger checking
+    // DISABLED: Temporarily disabled due to development environment issues
+    // setInterval(() => {
+    //   enhancedRollbackSystem.checkRollbackTriggers();
+    // }, 30000); // Check every 30 seconds
+    
     // Check if port is available before starting
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('📊 Monitoring and alerting system active');
     });
     
     // Handle server errors

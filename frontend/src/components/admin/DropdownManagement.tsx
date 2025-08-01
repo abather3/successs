@@ -50,7 +50,8 @@ const DropdownManagement: React.FC = () => {
   });
 
   const [type, setType] = useState<'grade' | 'lens'>('grade');
-  const fetchItems = async () => {
+  
+  const fetchItems = React.useCallback(async () => {
     try {
       const token = localStorage.getItem('accessToken');
       const response = await fetch(`/api/admin/${type}-types`, {
@@ -75,11 +76,11 @@ const DropdownManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [type]);
 
   useEffect(() => {
     fetchItems();
-  }, [type]);
+  }, [fetchItems]);
 
   const handleOpenDialog = (item?: DropdownItem) => {
     if (item) {

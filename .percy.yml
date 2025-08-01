@@ -1,0 +1,68 @@
+# Percy configuration
+version: 2
+
+discovery:
+  network-requests:
+    wait-for: http://localhost:3000
+
+  allowed-hostnames:
+    - localhost
+    - escashop-dev.local
+
+snapshot:
+  widths:
+    - 375   # Mobile
+    - 768   # Tablet
+    - 1280  # Desktop
+
+  minimum-height: 1024
+
+  percy-css: |
+    /* Hide dynamic elements during visual testing */
+    .loading-spinner,
+    .timestamp,
+    .real-time-counter {
+      visibility: hidden !important;
+    }
+    
+    /* Standardize animations for consistent screenshots */
+    * {
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+    }
+
+static-snapshots:
+  base-url: http://localhost:3000
+  snapshot-files: '**/*.html'
+  ignore-files:
+    - '**/node_modules/**'
+    - '**/test/**'
+
+# Component-specific testing
+visual-regression:
+  components:
+    - name: 'Login Form'
+      selector: '.login-form'
+      
+    - name: 'Dashboard - Admin'
+      selector: '.admin-dashboard'
+      
+    - name: 'Queue Management'
+      selector: '.queue-management'
+      
+    - name: 'Transaction Management'
+      selector: '.transaction-management'
+      
+    - name: 'Customer Registration'
+      selector: '.customer-registration'
+      
+    - name: 'Display Monitor'
+      selector: '.display-monitor'
+
+  responsive-breakpoints:
+    mobile: 375px
+    tablet: 768px
+    desktop: 1280px
+    large: 1920px

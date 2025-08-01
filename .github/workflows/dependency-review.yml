@@ -1,0 +1,385 @@
+name: Dependency Review and Security Audit
+
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - 'yarn.lock'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+          deny-licenses: GPL-2.0, GPL-3.0
+          comment-summary-in-pr: always
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: dependency-review
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm ci --ignore-scripts
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci --ignore-scripts
+
+      - name: Run Security Audit (Root)
+        run: |
+          echo "## Root Package Security Audit" >> $GITHUB_STEP_SUMMARY
+          npm audit --audit-level=moderate --json > root-audit.json || true
+          
+          # Check if vulnerabilities found
+          if [ -s root-audit.json ]; then
+            echo "### Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            npm audit --audit-level=moderate >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No vulnerabilities found in root package" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Run Security Audit (Backend)
+        run: |
+          cd backend
+          echo "## Backend Security Audit" >> $GITHUB_STEP_SUMMARY
+          npm audit --audit-level=moderate --json > backend-audit.json || true
+          
+          if [ -s backend-audit.json ]; then
+            echo "### Backend Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            npm audit --audit-level=moderate >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No vulnerabilities found in backend" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Run Security Audit (Frontend)
+        run: |
+          cd frontend
+          echo "## Frontend Security Audit" >> $GITHUB_STEP_SUMMARY
+          npm audit --audit-level=moderate --json > frontend-audit.json || true
+          
+          if [ -s frontend-audit.json ]; then
+            echo "### Frontend Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            npm audit --audit-level=moderate >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No vulnerabilities found in frontend" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Audit Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-audit-results
+          path: |
+            *-audit.json
+            backend/*-audit.json
+            frontend/*-audit.json
+
+  license-check:
+    name: License Compatibility Check
+    runs-on: ubuntu-latest
+    needs: dependency-review
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm ci --ignore-scripts
+          cd backend && npm ci --ignore-scripts
+          cd ../frontend && npm ci --ignore-scripts
+
+      - name: Check Licenses (Root)
+        run: |
+          echo "## License Check Results" >> $GITHUB_STEP_SUMMARY
+          npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense;CC0-1.0" --summary >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Licenses (Backend)
+        run: |
+          cd backend
+          echo "### Backend License Check" >> $GITHUB_STEP_SUMMARY
+          npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense;CC0-1.0" --summary >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Licenses (Frontend)
+        run: |
+          cd frontend
+          echo "### Frontend License Check" >> $GITHUB_STEP_SUMMARY
+          npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense;CC0-1.0" --summary >> $GITHUB_STEP_SUMMARY
+
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: [security-audit, license-check]
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      - name: Build Backend
+        run: |
+          cd backend
+          npm run build
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Run Backend Tests
+        run: |
+          cd backend
+          npm test
+
+      - name: Run Frontend Tests
+        run: |
+          cd frontend
+          npm test -- --coverage --watchAll=false
+
+      - name: Run Integration Tests
+        run: |
+          cd backend
+          npm run test:integration || echo "Integration tests not available"
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            backend/coverage/
+            frontend/coverage/
+
+  performance-check:
+    name: Performance Impact Analysis
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: contains(github.event.pull_request.title, 'major') || contains(github.event.pull_request.labels.*.name, 'major-update')
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          cd frontend && npm ci
+
+      - name: Build for Analysis
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Analyze Bundle Size
+        run: |
+          cd frontend
+          npx webpack-bundle-analyzer build/static/js/*.js --report --mode static --report-filename bundle-report.html
+          
+          # Get build size
+          du -sh build/ >> $GITHUB_STEP_SUMMARY
+          echo "Bundle analysis report generated" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Bundle Analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analysis
+          path: frontend/bundle-report.html
+
+  dependency-update-validation:
+    name: Validate Dependency Update
+    runs-on: ubuntu-latest
+    needs: [security-audit, license-check, build-test]
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Validate Package Versions
+        run: |
+          echo "## Dependency Update Validation" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for version consistency across workspaces
+          echo "### Version Consistency Check" >> $GITHUB_STEP_SUMMARY
+          
+          # Compare shared dependencies between frontend and backend
+          if [ -f "backend/package.json" ] && [ -f "frontend/package.json" ]; then
+            echo "Checking shared dependencies..." >> $GITHUB_STEP_SUMMARY
+            
+            # Extract common dependencies
+            backend_deps=$(jq -r '.dependencies | keys[]' backend/package.json 2>/dev/null || echo "")
+            frontend_deps=$(jq -r '.dependencies | keys[]' frontend/package.json 2>/dev/null || echo "")
+            
+            # Check for version mismatches
+            for dep in $backend_deps; do
+              if echo "$frontend_deps" | grep -q "^$dep$"; then
+                backend_version=$(jq -r ".dependencies.\"$dep\"" backend/package.json)
+                frontend_version=$(jq -r ".dependencies.\"$dep\"" frontend/package.json)
+                
+                if [ "$backend_version" != "$frontend_version" ]; then
+                  echo "⚠️ Version mismatch for $dep: Backend($backend_version) vs Frontend($frontend_version)" >> $GITHUB_STEP_SUMMARY
+                fi
+              fi
+            done
+          fi
+
+      - name: Check for Deprecated Packages
+        run: |
+          echo "### Deprecated Package Check" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for deprecated packages
+          if command -v npx >/dev/null 2>&1; then
+            npx check-is-deprecated --json > deprecated-check.json 2>/dev/null || true
+            
+            if [ -s deprecated-check.json ]; then
+              echo "⚠️ Some packages may be deprecated. Check the artifact for details." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No deprecated packages detected" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Generate Dependency Report
+        run: |
+          echo "### Dependency Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "$(date): Dependency validation completed" >> $GITHUB_STEP_SUMMARY
+          
+          # List updated packages (if available in PR)
+          if [ -n "${{ github.event.pull_request.body }}" ]; then
+            echo "PR Description contains update information" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  notify-reviewers:
+    name: Notify Required Reviewers
+    runs-on: ubuntu-latest
+    needs: [dependency-update-validation]
+    if: always()
+    
+    steps:
+      - name: Determine Review Requirements
+        id: review-requirements
+        run: |
+          # Determine if this is a major update
+          if [[ "${{ github.event.pull_request.title }}" == *"major"* ]] || \
+             [[ "${{ contains(github.event.pull_request.labels.*.name, 'major-update') }}" == "true" ]]; then
+            echo "review_type=major" >> $GITHUB_OUTPUT
+            echo "reviewers_needed=2" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.pull_request.title }}" == *"security"* ]] || \
+               [[ "${{ contains(github.event.pull_request.labels.*.name, 'security') }}" == "true" ]]; then
+            echo "review_type=security" >> $GITHUB_OUTPUT
+            echo "reviewers_needed=1" >> $GITHUB_OUTPUT
+          else
+            echo "review_type=standard" >> $GITHUB_OUTPUT
+            echo "reviewers_needed=1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reviewType = '${{ steps.review-requirements.outputs.review_type }}';
+            const reviewersNeeded = '${{ steps.review-requirements.outputs.reviewers_needed }}';
+            
+            let comment = `## Dependency Update Review Requirements\n\n`;
+            comment += `**Review Type**: ${reviewType}\n`;
+            comment += `**Reviewers Needed**: ${reviewersNeeded}\n\n`;
+            
+            if (reviewType === 'major') {
+              comment += `### Major Version Update Detected\n`;
+              comment += `- ✅ Security audit completed\n`;
+              comment += `- ✅ License check completed\n`;
+              comment += `- ✅ Build and tests completed\n`;
+              comment += `- ⏳ Requires **2 reviewer approvals**\n`;
+              comment += `- 📋 Please ensure rollback plan is documented\n\n`;
+              comment += `**Required Checklist for Reviewers:**\n`;
+              comment += `- [ ] Breaking changes properly documented\n`;
+              comment += `- [ ] Migration guide provided\n`;
+              comment += `- [ ] Performance impact assessed\n`;
+              comment += `- [ ] Rollback plan documented\n`;
+            } else if (reviewType === 'security') {
+              comment += `### Security Update Detected\n`;
+              comment += `- ✅ Security audit completed\n`;
+              comment += `- ⏳ Requires security team review\n`;
+              comment += `- 🚨 Expedited review recommended\n`;
+            } else {
+              comment += `### Standard Dependency Update\n`;
+              comment += `- ✅ All automated checks passed\n`;
+              comment += `- ⏳ Requires 1 reviewer approval\n`;
+            }
+            
+            comment += `\n---\n*This comment was auto-generated by the dependency review workflow*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

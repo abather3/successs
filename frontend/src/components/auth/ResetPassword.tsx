@@ -40,7 +40,7 @@ const ResetPassword: React.FC = () => {
 
   const validateToken = async () => {
     try {
-      const response = await apiRequest('/api/auth/verify-reset-token', {
+      const response = await apiRequest('/auth/verify-reset-token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -118,7 +118,7 @@ const ResetPassword: React.FC = () => {
     setError('');
 
     try {
-      const response = await apiRequest('/api/auth/reset-password', {
+      const response = await apiRequest('/auth/reset-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

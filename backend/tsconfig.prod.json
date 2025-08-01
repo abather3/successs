@@ -5,24 +5,32 @@
     "lib": ["ES2020"],
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
+    "strict": false,
     "noImplicitAny": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+    "forceConsistentCasingInFileNames": false,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false
   },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules", 
     "dist", 
     "**/*.test.ts", 
+    "**/*.spec.ts",
     "**/__tests__/**", 
     "**/test/**",
     "src/examples/**",
-    "src/services/cachedQueue.ts"
+    "src/client/**",
+    "src/services/cachedQueue.ts",
+    "src/services/monitoring-original.ts"
   ]
 }

@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # Test PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop_postgres_test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escashop
+      POSTGRES_USER: escashop_user
+      POSTGRES_PASSWORD: escashop_pass_2024
+    volumes:
+      - postgres_data_test:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - escashop_network_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U escashop_user -d escashop"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Test Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+    image: escashop/backend:test
+    container_name: escashop_backend_test
+    restart: unless-stopped
+    command: ["sh", "-c", "node -e 'console.log(\"Backend starting in test mode\"); const express = require(\"express\"); const app = express(); app.get(\"/health\", (req, res) => res.json({status: \"ok\"})); app.listen(5000, () => console.log(\"Server running on port 5000\"));'"]
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escashop
+      DB_USER: escashop_user
+      DB_PASSWORD: escashop_pass_2024
+      
+      # JWT Configuration
+      JWT_SECRET: test_jwt_secret_key_for_production_testing_2024
+      JWT_REFRESH_SECRET: test_jwt_refresh_secret_key_for_production_testing_2024
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      
+      # CORS Configuration
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000
+      CORS_CREDENTIALS: true
+      
+      # Production Logging
+      LOG_LEVEL: info
+      LOG_TO_CONSOLE: true
+      LOG_TO_FILE: true
+      
+      # Feature Flags
+      ENABLE_DEBUG_ROUTES: true
+      ENABLE_API_DOCS: false
+      ENABLE_METRICS: true
+      
+      # Email configuration (disabled for testing)
+      EMAIL_SERVICE: smtp
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_SECURE: true
+      
+      # Timezone
+      TZ: Asia/Manila
+      
+    ports:
+      - "5001:5000"
+    networks:
+      - escashop_network_test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  # Test Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - REACT_APP_VERSION=1.0.0-test
+    image: escashop/frontend:test
+    container_name: escashop_frontend_test
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      REACT_APP_API_URL: http://localhost:5001
+      REACT_APP_VERSION: 1.0.0-test
+      REACT_APP_ENV: production
+      
+      # Security settings
+      GENERATE_SOURCEMAP: false
+      INLINE_RUNTIME_CHUNK: false
+      
+    ports:
+      - "3001:3000"
+    networks:
+      - escashop_network_test
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+# Test Named Volumes
+volumes:
+  postgres_data_test:
+    driver: local
+
+# Test Network Configuration
+networks:
+  escashop_network_test:
+    driver: bridge

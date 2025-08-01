@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "rollbackThresholds": {
+    "consecutiveFailures": 3,
+    "failureRate": 0.7,
+    "timeWindow": 300000
+  },
+  "activeEnvironment": "blue",
+  "trafficSplit": {
+    "blue": 100,
+    "green": 0
+  },
+  "blueVersion": "1.0.0",
+  "greenVersion": "1.0.0",
+  "blueDeployedAt": "2025-07-27T00:00:00.000Z",
+  "greenDeployedAt": "2025-07-27T00:00:00.000Z",
+  "healthCheckInterval": 30000,
+  "switchTimeout": 300000
+}

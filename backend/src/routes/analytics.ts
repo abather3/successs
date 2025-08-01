@@ -353,6 +353,229 @@ router.get('/sms-notifications/customer/:customerId', requireRole([UserRole.ADMI
 /**
  * Retry failed SMS notifications
  */
+router.post('/sms-notifications/:id/retry', requireRole([UserRole.ADMIN]), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    // For individual retry, we'll mark it for retry and let the batch process handle it
+    const updateQuery = `
+      UPDATE sms_notifications 
+      SET status = 'pending', retry_count = COALESCE(retry_count, 0) + 1
+      WHERE id = $1 AND status = 'failed'
+      RETURNING id
+    `;
+    
+    const result = await pool.query(updateQuery, [parseInt(id)]);
+    
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Failed notification not found' });
+      return;
+    }
+    
+    res.json({ 
+      message: 'SMS notification marked for retry', 
+      success: true,
+      id: result.rows[0].id
+    });
+  } catch (error) {
+    console.error('Error retrying SMS notification:', error);
+    res.status(500).json({ error: 'Failed to retry SMS notification' });
+  }
+});
+
+/**
+ * Get Historical Analytics Dashboard
+ * This provides data for the Historical Queue Analytics dashboard
+ */
+router.get('/historical-dashboard', requireRole([UserRole.ADMIN, UserRole.SALES, UserRole.CASHIER]), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { days = 30 } = req.query;
+    const numDays = parseInt(days as string);
+    
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - numDays);
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    // Get daily queue history
+    const dailyHistoryQuery = `
+      SELECT 
+        date,
+        total_customers as "totalCustomers",
+        waiting_customers as "waitingCustomers",
+        serving_customers as "servingCustomers",
+        processing_customers as "processingCustomers",
+        completed_customers as "completedCustomers",
+        cancelled_customers as "cancelledCustomers",
+        priority_customers as "priorityCustomers",
+        avg_wait_time_minutes as "avgWaitTime",
+        peak_queue_length as "peakQueueLength",
+        operating_hours as "operatingHours"
+      FROM daily_queue_history
+      WHERE date >= $1 AND date <= $2
+      ORDER BY date DESC
+    `;
+    
+    const dailyHistoryResult = await pool.query(dailyHistoryQuery, [startDateStr, endDateStr]);
+    
+    // Get display monitor history
+    const displayHistoryQuery = `
+      SELECT 
+        date,
+        daily_customers_served,
+        daily_avg_wait_time,
+        daily_peak_queue_length,
+        daily_priority_customers,
+        operating_efficiency,
+        created_at
+      FROM display_monitor_history
+      WHERE date >= $1 AND date <= $2
+      ORDER BY date DESC
+    `;
+    
+    const displayHistoryResult = await pool.query(displayHistoryQuery, [startDateStr, endDateStr]);
+    
+    // Get reset logs
+    const resetLogsQuery = `
+      SELECT 
+        id,
+        reset_date,
+        customers_processed as "customers_archived",
+        customers_carried_forward,
+        customers_processed + customers_carried_forward as "queues_reset",
+        success,
+        error_message,
+        duration_ms,
+        reset_timestamp as "created_at"
+      FROM daily_reset_log
+      WHERE reset_date >= $1 AND reset_date <= $2
+      ORDER BY reset_date DESC
+    `;
+    
+    const resetLogsResult = await pool.query(resetLogsQuery, [startDateStr, endDateStr]);
+    
+    // Calculate summary statistics
+    const totalCustomers = dailyHistoryResult.rows.reduce((sum, row) => sum + (row.totalCustomers || 0), 0);
+    const avgWaitTime = dailyHistoryResult.rows.length > 0 
+      ? dailyHistoryResult.rows.reduce((sum, row) => sum + (row.avgWaitTime || 0), 0) / dailyHistoryResult.rows.length
+      : 0;
+    
+    const successfulResets = resetLogsResult.rows.filter(row => row.success).length;
+    const failedResets = resetLogsResult.rows.filter(row => !row.success).length;
+    const resetSuccessRate = resetLogsResult.rows.length > 0 
+      ? Math.round((successfulResets / resetLogsResult.rows.length) * 100)
+      : 100;
+    
+    const dashboard = {
+      success: true,
+      period: {
+        days: numDays,
+        start_date: startDateStr,
+        end_date: endDateStr
+      },
+      summary: {
+        total_customers_served: totalCustomers,
+        average_wait_time_minutes: Math.round(avgWaitTime * 100) / 100,
+        successful_resets: successfulResets,
+        failed_resets: failedResets,
+        reset_success_rate: resetSuccessRate
+      },
+      daily_queue_history: dailyHistoryResult.rows,
+      display_monitor_history: displayHistoryResult.rows,
+      reset_logs: resetLogsResult.rows
+    };
+    
+    res.json(dashboard);
+  } catch (error) {
+    console.error('Error fetching historical dashboard:', error);
+    res.status(500).json({ error: 'Failed to fetch historical analytics dashboard' });
+  }
+});
+
+/**
+ * Get Customer History (archived customers)
+ * This provides paginated customer history data
+ */
+router.get('/customer-history', requireRole([UserRole.ADMIN, UserRole.SALES, UserRole.CASHIER]), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { days = 30, page = 1, limit = 20 } = req.query;
+    const numDays = parseInt(days as string);
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
+    
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - numDays);
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    // Get customer history with pagination
+    const customerHistoryQuery = `
+      SELECT 
+        id,
+        original_customer_id,
+        name,
+        email,
+        phone,
+        queue_status,
+        token_number,
+        priority_flags,
+        created_at,
+        served_at,
+        archive_date,
+        EXTRACT(EPOCH FROM (COALESCE(served_at, archive_date::timestamp) - created_at)) / 60 as wait_time_minutes,
+        CASE 
+          WHEN served_at IS NOT NULL AND created_at IS NOT NULL 
+          THEN EXTRACT(EPOCH FROM (served_at - created_at)) / 60
+          ELSE 0
+        END as service_duration_minutes,
+        false as carried_forward
+      FROM customer_history
+      WHERE archive_date >= $1 AND archive_date <= $2
+      ORDER BY archive_date DESC, created_at DESC
+      LIMIT $3 OFFSET $4
+    `;
+    
+    const customerHistoryResult = await pool.query(customerHistoryQuery, [
+      startDateStr, endDateStr, limitNum, offset
+    ]);
+    
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM customer_history
+      WHERE archive_date >= $1 AND archive_date <= $2
+    `;
+    
+    const countResult = await pool.query(countQuery, [startDateStr, endDateStr]);
+    const totalRecords = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(totalRecords / limitNum);
+    
+    const response = {
+      success: true,
+      data: customerHistoryResult.rows,
+      pagination: {
+        current_page: pageNum,
+        total_pages: totalPages,
+        total_records: totalRecords,
+        per_page: limitNum,
+        has_next: pageNum < totalPages,
+        has_prev: pageNum > 1
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching customer history:', error);
+    res.status(500).json({ error: 'Failed to fetch customer history' });
+  }
+});
 router.post('/sms-notifications/retry-failed', requireRole([UserRole.ADMIN]), async (req: Request, res: Response): Promise<void> => {
   try {
     const { maxRetries = 5 } = req.body;
@@ -418,73 +641,6 @@ router.get('/display-monitor-history', requireRole([UserRole.ADMIN, UserRole.SAL
 });
 
 /**
- * Get customer history archives
- */
-router.get('/customer-history', requireRole([UserRole.ADMIN, UserRole.SALES, UserRole.CASHIER]), async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { days = 30, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-    
-    const query = `
-      SELECT 
-        id,
-        original_customer_id,
-        name,
-        email,
-        phone,
-        queue_status,
-        token_number,
-        priority_flags,
-        estimated_wait_time as wait_time_minutes,
-        served_at,
-        counter_id,
-        archive_date,
-        created_at,
-        archived_at
-      FROM customer_history
-      WHERE archive_date >= CURRENT_DATE - INTERVAL '${parseInt(days as string)} days'
-      ORDER BY archive_date DESC, created_at DESC
-      LIMIT $1 OFFSET $2
-    `;
-    
-    const countQuery = `
-      SELECT COUNT(*) as total
-      FROM customer_history
-      WHERE archive_date >= CURRENT_DATE - INTERVAL '${parseInt(days as string)} days'
-    `;
-    
-    const [historyResult, countResult] = await Promise.all([
-      pool.query(query, [parseInt(limit as string), offset]),
-      pool.query(countQuery)
-    ]);
-    
-    const total = parseInt(countResult.rows[0].total);
-    const totalPages = Math.ceil(total / parseInt(limit as string));
-    
-    res.json({
-      success: true,
-      data: historyResult.rows,
-      pagination: {
-        current_page: parseInt(page as string),
-        total_pages: totalPages,
-        total_records: total,
-        per_page: parseInt(limit as string),
-        has_next: parseInt(page as string) < totalPages,
-        has_prev: parseInt(page as string) > 1
-      },
-      days: parseInt(days as string),
-      description: 'Archived customer records from daily queue resets'
-    });
-  } catch (error) {
-    console.error('Error fetching customer history:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch customer history' 
-    });
-  }
-});
-
-/**
  * Get daily reset logs
  */
 router.get('/daily-reset-logs', requireRole([UserRole.ADMIN]), async (req: Request, res: Response): Promise<void> => {
@@ -495,13 +651,13 @@ router.get('/daily-reset-logs', requireRole([UserRole.ADMIN]), async (req: Reque
       SELECT 
         id,
         reset_date,
-        customers_archived,
+        customers_processed as customers_archived,
         customers_carried_forward,
-        queues_reset,
+        customers_processed + customers_carried_forward as queues_reset,
         success,
         error_message,
         duration_ms,
-        created_at
+        reset_timestamp as created_at
       FROM daily_reset_log
       WHERE reset_date >= CURRENT_DATE - INTERVAL '${parseInt(days as string)} days'
       ORDER BY reset_date DESC
@@ -520,61 +676,6 @@ router.get('/daily-reset-logs', requireRole([UserRole.ADMIN]), async (req: Reque
     res.status(500).json({ 
       success: false, 
       error: 'Failed to fetch daily reset logs' 
-    });
-  }
-});
-
-/**
- * Get comprehensive historical analytics dashboard
- */
-router.get('/historical-dashboard', requireRole([UserRole.ADMIN, UserRole.SALES, UserRole.CASHIER]), async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { days = 30 } = req.query;
-    const numDays = parseInt(days as string);
-    
-    // Fetch all historical data in parallel
-    const [queueHistory, monitorHistory, resetLogs] = await Promise.all([
-      DailyQueueResetService.getDailyHistory(numDays),
-      DailyQueueResetService.getDisplayMonitorHistory(numDays),
-      pool.query(`
-        SELECT * FROM daily_reset_log 
-        WHERE reset_date >= CURRENT_DATE - INTERVAL '${numDays} days'
-        ORDER BY reset_date DESC
-      `)
-    ]);
-    
-    // Calculate summary statistics
-    const totalCustomers = queueHistory.reduce((sum, day) => sum + (day.totalCustomers || 0), 0);
-    const avgWaitTime = queueHistory.length > 0 
-      ? queueHistory.reduce((sum, day) => sum + (day.avgWaitTime || 0), 0) / queueHistory.length
-      : 0;
-    const totalResets = resetLogs.rows.filter(log => log.success).length;
-    const failedResets = resetLogs.rows.filter(log => !log.success).length;
-    
-    res.json({
-      success: true,
-      period: {
-        days: numDays,
-        start_date: new Date(Date.now() - numDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        end_date: new Date().toISOString().split('T')[0]
-      },
-      summary: {
-        total_customers_served: totalCustomers,
-        average_wait_time_minutes: Math.round(avgWaitTime * 100) / 100,
-        successful_resets: totalResets,
-        failed_resets: failedResets,
-        reset_success_rate: totalResets > 0 ? Math.round((totalResets / (totalResets + failedResets)) * 100) : 0
-      },
-      daily_queue_history: queueHistory,
-      display_monitor_history: monitorHistory,
-      reset_logs: resetLogs.rows,
-      description: 'Comprehensive historical analytics from daily queue scheduler'
-    });
-  } catch (error) {
-    console.error('Error fetching historical dashboard:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch historical analytics dashboard' 
     });
   }
 });

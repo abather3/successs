@@ -1,0 +1,239 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Root workspace (monorepo scripts and shared dependencies)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    assignees:
+      - "dev-team"
+    reviewers:
+      - "dev-team"
+    labels:
+      - "dependencies"
+      - "root"
+      - "automated"
+    commit-message:
+      prefix: "deps(root)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    ignore:
+      # Ignore major version updates for critical dependencies - handle manually
+      - dependency-name: "@playwright/test"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "concurrently"
+        update-types: ["version-update:semver-major"]
+
+  # Backend dependencies
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 8
+    target-branch: "develop"
+    assignees:
+      - "backend-team"
+    reviewers:
+      - "backend-team"
+    labels:
+      - "dependencies"
+      - "backend"
+      - "automated"
+    commit-message:
+      prefix: "deps(backend)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    ignore:
+      # Critical backend dependencies - handle major updates manually
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "socket.io"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pg"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jsonwebtoken"
+        update-types: ["version-update:semver-major"]
+      # TypeScript updates need careful coordination
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/*"
+        update-types: ["version-update:semver-major"]
+
+  # Frontend dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 8
+    target-branch: "develop"
+    assignees:
+      - "frontend-team"
+    reviewers:
+      - "frontend-team"
+    labels:
+      - "dependencies"
+      - "frontend"
+      - "automated"
+    commit-message:
+      prefix: "deps(frontend)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    ignore:
+      # Critical frontend dependencies - handle major updates manually
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-router-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@mui/material"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@mui/icons-material"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "socket.io-client"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-scripts"
+        update-types: ["version-update:semver-major"]
+
+  # Security-focused updates (daily for security patches)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    target-branch: "develop"
+    assignees:
+      - "security-team"
+    reviewers:
+      - "security-team"
+    labels:
+      - "security"
+      - "dependencies"
+      - "critical"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    # Only focus on security updates
+    allow:
+      - dependency-type: "security-updates"
+
+  # Backend security updates (daily)
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "daily"
+      time: "06:15"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    target-branch: "develop"
+    assignees:
+      - "security-team"
+    reviewers:
+      - "security-team"
+    labels:
+      - "security"
+      - "dependencies"
+      - "backend"
+      - "critical"
+    commit-message:
+      prefix: "security(backend)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    allow:
+      - dependency-type: "security-updates"
+
+  # Frontend security updates (daily)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "daily"
+      time: "06:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    target-branch: "develop"
+    assignees:
+      - "security-team"
+    reviewers:
+      - "security-team"
+    labels:
+      - "security"
+      - "dependencies"
+      - "frontend"
+      - "critical"
+    commit-message:
+      prefix: "security(frontend)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    allow:
+      - dependency-type: "security-updates"
+
+  # Docker dependencies (if any Dockerfiles exist)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "10:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    target-branch: "develop"
+    assignees:
+      - "devops-team"
+    reviewers:
+      - "devops-team"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "deps(docker)"
+      include: "scope"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    assignees:
+      - "devops-team"
+    reviewers:
+      - "devops-team"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+    commit-message:
+      prefix: "deps(actions)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"

@@ -1,0 +1,209 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escashop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_secure_password_123
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - escashop_network_dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d escashop"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: escashop_redis_dev
+    restart: unless-stopped
+    command: redis-server --requirepass "redis_secure_password_456"
+    volumes:
+      - redis_data_dev:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - escashop_network_dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API (Development mode)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: escashop_backend_dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escashop
+      DB_USER: postgres
+      DB_PASSWORD: postgres_secure_password_123
+      DATABASE_URL: postgresql://postgres:postgres_secure_password_123@postgres:5432/escashop
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_secure_password_456
+      
+      # JWT Configuration
+      JWT_SECRET: jwt_super_secret_key_for_development_only_change_in_production
+      JWT_REFRESH_SECRET: jwt_refresh_super_secret_key_for_development_only_change_in_production
+      JWT_EXPIRES_IN: 30m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      TOKEN_ROTATION_ENABLED: true
+      
+      # CORS and Frontend
+      FRONTEND_URL: http://localhost,http://localhost:3000
+      
+      # Security Settings
+      PASSWORD_MIN_LENGTH: 8
+      SESSION_TIMEOUT: 600000
+      
+      # Rate Limiting
+      RATE_LIMIT_WINDOW: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      
+      # Logging
+      LOG_LEVEL: debug
+      LOG_FILE: /app/logs/app.log
+      
+      # Feature Flags
+      ENABLE_UNIQUE_SETTLEMENT_INDEX: true
+      ENABLE_SETTLEMENT_TRACING: true
+      ENABLE_SETTLEMENT_MONITORING: true
+      
+      # Trust Proxy Settings
+      TRUST_PROXY: true
+      PROXY_COUNT: 1
+
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+    ports:
+      - "5000:5000"
+    networks:
+      - escashop_network_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend (Development mode with memory optimizations)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: escashop_frontend_dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      REACT_APP_API_URL: /api
+      REACT_APP_WS_URL: ws://localhost
+      # React dev server host binding for Docker
+      HOST: 0.0.0.0
+      PORT: 3000
+      # Memory optimization settings - disable file watching to prevent ENOMEM
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 2000
+      WATCHPACK_POLLING: true
+      WDS_SOCKET_HOST: localhost
+      WDS_SOCKET_PORT: 3000
+      FAST_REFRESH: false
+      # Increase memory allocation significantly
+      NODE_OPTIONS: "--max-old-space-size=4096 --max-semi-space-size=512"
+      # Disable source maps to reduce memory usage
+      GENERATE_SOURCEMAP: false
+      # Reduce webpack parallelism
+      WEBPACK_WORKERS: 1
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    networks:
+      - escashop_network_dev
+    depends_on:
+      - backend
+    # Resource limits to prevent memory issues
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+    # Shared memory size for better performance
+    shm_size: '2gb'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy (Development)
+  nginx:
+    image: nginx:alpine
+    container_name: escashop_nginx_dev
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./backend/logs:/var/log/escashop
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - escashop_network_dev
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://escashop_backend_dev:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Named volumes for data persistence
+volumes:
+  postgres_data_dev:
+    driver: local
+  redis_data_dev:
+    driver: local
+
+# Custom network
+networks:
+  escashop_network_dev:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

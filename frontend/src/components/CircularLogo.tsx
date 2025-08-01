@@ -49,7 +49,7 @@ const CircularLogo: React.FC<CircularLogoProps> = ({
       <LogoImage
         src="/escashop-logo.png"
         alt={alt}
-        onError={(e) => {
+        onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
           console.error('Logo failed to load:', e);
         }}
       />

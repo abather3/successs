@@ -1,6 +1,39 @@
 // API utility functions for making HTTP requests
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+// API Base URL configuration for Docker setup
+// Prioritize nginx proxy detection over environment variables
+const getApiBaseUrl = () => {
+  const currentLocation = window.location;
+  console.log('[API] Port detection:', currentLocation.port, 'Protocol:', currentLocation.protocol, 'Host:', currentLocation.host);
+  
+  // First priority: Check if accessed via nginx proxy (port 80 or no port specified)
+  const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+  
+  if (isNginxProxy) {
+    // Accessed through nginx proxy - use relative API path
+    console.log('[API] Detected nginx proxy access - using /api');
+    return '/api';
+  }
+  
+  // Second priority: Direct frontend container access - check environment
+  if (process.env.REACT_APP_API_URL) {
+    console.log('[API] Using env var:', process.env.REACT_APP_API_URL);
+    return process.env.REACT_APP_API_URL;
+  }
+  
+  // Fallback: Use proxy path for development
+  console.log('[API] Using fallback: /api');
+  return '/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+console.log('[API] Using API_BASE_URL:', API_BASE_URL, 'NODE_ENV:', process.env.NODE_ENV);
+console.log('[API] Current location:', window.location.href);
+console.log('[API] Environment variables:', {
+  REACT_APP_API_URL: process.env.REACT_APP_API_URL,
+  NODE_ENV: process.env.NODE_ENV
+});
 
 export interface ApiRequestOptions extends RequestInit {
   timeout?: number;
@@ -20,7 +53,9 @@ export const apiRequest = async (
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+    console.log('[API] Making request to:', url, 'from endpoint:', endpoint);
+    console.log('[API] Using API_BASE_URL:', API_BASE_URL);
     
     const response = await fetch(url, {
       ...fetchOptions,
@@ -105,19 +140,62 @@ export const apiDelete = async (endpoint: string): Promise<Response> => {
 };
 
 /**
+ * Helper for binary file downloads with authentication
+ */
+export const apiBinaryDownload = async (
+  endpoint: string,
+  options: ApiRequestOptions = {}
+): Promise<Response> => {
+  const token = localStorage.getItem('accessToken');
+  
+  const authOptions: ApiRequestOptions = {
+    ...options,
+    timeout: 30000, // 30 seconds for binary downloads
+    headers: {
+      // Set Content-Type for JSON payloads, but allow override
+      ...(options.body && typeof options.body === 'string' && { 'Content-Type': 'application/json' }),
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...options.headers,
+    },
+  };
+
+  console.log('[API] Binary download request:', {
+    endpoint,
+    method: authOptions.method || 'GET',
+    hasBody: !!authOptions.body,
+    headers: authOptions.headers,
+    timeout: authOptions.timeout
+  });
+
+  return apiRequest(endpoint, authOptions);
+};
+
+/**
  * Error handling helper
  */
 export const handleApiError = async (response: Response): Promise<never> => {
   let errorMessage = 'An error occurred';
+  let errorDetails: any[] = [];
   
   try {
     const errorData = await response.json();
     errorMessage = errorData.error || errorData.message || errorMessage;
+    
+    // Preserve validation details if they exist
+    if (errorData.details && Array.isArray(errorData.details)) {
+      errorDetails = errorData.details;
+    }
   } catch {
     errorMessage = `HTTP ${response.status}: ${response.statusText}`;
   }
   
-  throw new Error(errorMessage);
+  // Create error object with details
+  const error = new Error(errorMessage) as any;
+  if (errorDetails.length > 0) {
+    error.details = errorDetails;
+  }
+  
+  throw error;
 };
 
 /**

@@ -1,0 +1,60 @@
+{
+  "timestamp": "2025-07-30T06:13:07.839Z",
+  "metrics": {
+    "websocketConnections": 0,
+    "activeWebsocketConnections": 0,
+    "apiResponseTime": {
+      "/health": [
+        26,
+        10,
+        3,
+        5
+      ],
+      "/api/auth/login": [
+        780
+      ],
+      "/login": [
+        802
+      ],
+      "/historical-dashboard": [
+        44,
+        33
+      ],
+      "/customer-history": [
+        71
+      ]
+    },
+    "databaseQueryTime": [],
+    "queueLength": 0,
+    "memoryUsage": {
+      "rss": 98308096,
+      "heapTotal": 36679680,
+      "heapUsed": 35423008,
+      "external": 3834150,
+      "arrayBuffers": 401720
+    },
+    "cpuUsage": 0,
+    "errorRate": 11.11111111111111
+  },
+  "version": "1.0.0",
+  "rollbackHistory": [
+    {
+      "timestamp": "2025-07-30T06:12:07.843Z",
+      "reason": "Automated rollback triggered: high_error_rate",
+      "success": false,
+      "version": "1.0.0"
+    },
+    {
+      "timestamp": "2025-07-30T06:12:37.838Z",
+      "reason": "Automated rollback triggered: high_error_rate",
+      "success": false,
+      "version": "1.0.0"
+    },
+    {
+      "timestamp": "2025-07-30T06:13:07.838Z",
+      "reason": "Automated rollback triggered: high_error_rate",
+      "success": false,
+      "version": "1.0.0"
+    }
+  ]
+}

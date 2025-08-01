@@ -26,7 +26,13 @@ import { Transaction, DailyReport, PaymentMode, Expense, Fund } from '../types';
  * ```
  */
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Use proper API base URL detection
+const getApiBaseUrl = () => {
+  const currentLocation = window.location;
+  const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+  return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+};
+const API_BASE_URL = getApiBaseUrl();
 
 interface TransactionFilters {
   startDate?: string;
@@ -191,6 +197,26 @@ class TransactionApi {
   static async getDailyReport(date: string, apiOptions?: ApiOptions): Promise<DailyReport> {
     const url = `/transactions/reports/daily/${date}`;
     const response = await this.fetchWithAuth(url, {}, apiOptions);
+    return response.json();
+  }
+
+  static async deleteDailyReport(date: string, apiOptions?: ApiOptions): Promise<{ success: boolean; message: string }> {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const error = new Error('Invalid date format. Expected YYYY-MM-DD');
+      if (apiOptions?.onError) {
+        apiOptions.onError(error);
+      }
+      throw error;
+    }
+    const url = `/transactions/reports/daily/${date}`;
+    const response = await this.fetchWithAuth(url, {
+      method: 'DELETE',
+    }, apiOptions);
+    return response.json();
+  }
+
+  static async getAllDailyReports(apiOptions?: ApiOptions): Promise<DailyReport[]> {
+    const response = await this.fetchWithAuth('/transactions/reports/daily/all', {}, apiOptions);
     return response.json();
   }
 

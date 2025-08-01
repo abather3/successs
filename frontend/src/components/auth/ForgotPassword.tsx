@@ -39,7 +39,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
     setIsLoading(true);
 
     try {
-      const response = await apiRequest('/api/auth/request-password-reset', {
+      const response = await apiRequest('/auth/request-password-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

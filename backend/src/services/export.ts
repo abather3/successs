@@ -12,47 +12,59 @@ export class ExportService {
    * Export single customer to Excel
    */
   static async exportCustomerToExcel(customerId: number): Promise<Buffer> {
-    const customer = await CustomerService.findById(customerId);
-    if (!customer) {
-      throw new Error('Customer not found');
+    try {
+      console.log(`[ExportService] Starting Excel export for customer ID: ${customerId}`);
+      
+      const customer = await CustomerService.findById(customerId);
+      if (!customer) {
+        console.error(`[ExportService] Customer not found: ${customerId}`);
+        throw new Error('Customer not found');
+      }
+      
+      console.log(`[ExportService] Found customer: ${customer.name} (${customer.or_number})`);
+      
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Customer Data');
+
+      // Add headers
+      const headers = [
+        'Customer Name', 'Contact Number', 'Email', 'Age', 'Address',
+        'Occupation', 'Distribution Method', 'Sales Agent', 'Doctor Assigned',
+        'OD (Right Eye)', 'OS (Left Eye)', 'OU (Both Eyes)', 'PD (Pupillary Distance)',
+        'ADD (Addition)', 'Grade Type', 'Lens Type', 'Frame Code', 'Payment Method',
+        'Payment Amount', 'OR Number', 'Priority Flags', 'Remarks', 'Queue Status', 'Token Number',
+        'Estimated Time (min)', 'Registration Date'
+      ];
+
+      worksheet.addRow(headers);
+
+      // Format headers
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4285F4' }
+      };
+
+      // Add customer data
+      const rowData = this.formatCustomerData(customer);
+      worksheet.addRow(rowData);
+
+      // Auto-fit columns
+      worksheet.columns.forEach(column => {
+        column.width = 15;
+      });
+
+      // Generate buffer
+      console.log(`[ExportService] Generating Excel buffer for customer ${customer.name}`);
+      const buffer = await workbook.xlsx.writeBuffer();
+      console.log(`[ExportService] Excel export completed successfully, buffer size: ${buffer.byteLength}`);
+      return Buffer.from(buffer);
+    } catch (error) {
+      console.error(`[ExportService] Error in exportCustomerToExcel:`, error);
+      throw error;
     }
-
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Customer Data');
-
-    // Add headers
-    const headers = [
-      'Customer Name', 'Contact Number', 'Email', 'Age', 'Address',
-      'Occupation', 'Distribution Method', 'Sales Agent', 'Doctor Assigned',
-      'OD (Right Eye)', 'OS (Left Eye)', 'OU (Both Eyes)', 'PD (Pupillary Distance)',
-      'ADD (Addition)', 'Grade Type', 'Lens Type', 'Frame Code', 'Payment Method',
-      'Payment Amount', 'OR Number', 'Priority Flags', 'Remarks', 'Queue Status', 'Token Number',
-      'Estimated Time (min)', 'Registration Date'
-    ];
-
-    worksheet.addRow(headers);
-
-    // Format headers
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { bold: true };
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF4285F4' }
-    };
-
-    // Add customer data
-    const rowData = this.formatCustomerData(customer);
-    worksheet.addRow(rowData);
-
-    // Auto-fit columns
-    worksheet.columns.forEach(column => {
-      column.width = 15;
-    });
-
-    // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
   }
 
   /**
@@ -118,9 +130,9 @@ export class ExportService {
       
       if (line.includes(':') && !line.startsWith('  ')) {
         if (line.endsWith(':')) {
-          doc.setFont(undefined, 'bold');
+          doc.setFont('helvetica', 'bold');
         } else {
-          doc.setFont(undefined, 'normal');
+          doc.setFont('helvetica', 'normal');
         }
       }
       
@@ -237,7 +249,7 @@ export class ExportService {
     const lineHeight = 6;
     
     // Headers
-    doc.setFont(undefined, 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text('Name', 20, y);
     doc.text('Contact', 70, y);
     doc.text('Amount', 120, y);
@@ -250,7 +262,7 @@ export class ExportService {
     y += lineHeight;
     
     // Customer data
-    doc.setFont(undefined, 'normal');
+    doc.setFont('helvetica', 'normal');
     customers.forEach(customer => {
       if (y > 270) {
         doc.addPage();

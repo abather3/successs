@@ -4,10 +4,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import SessionExpiredDialog from './SessionExpiredDialog';
 
-// Debug helper to log with timestamp
+// Production-safe debug logging - disabled by default
 const logWithTimestamp = (message: string, data?: any) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [SESSION_MANAGER] ${message}`, data || '');
+  // Only log in development if DEBUG_SESSION is explicitly enabled
+  if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_DEBUG_SESSION === 'true') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [SESSION_MANAGER] ${message}`, data || '');
+  }
 };
 
 interface SessionManagerProps {

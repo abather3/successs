@@ -29,9 +29,19 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
   useEffect(() => {
     if (accessToken) {
-      // Extract the base URL from the API URL environment variable
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      const socketUrl = apiUrl.replace('/api', '');
+      // Determine socket URL based on environment and API configuration
+      let socketUrl: string;
+      
+      if (process.env.REACT_APP_WS_URL) {
+        // Use explicit WebSocket URL if provided
+        socketUrl = process.env.REACT_APP_WS_URL;
+      } else if (process.env.REACT_APP_API_URL === '/api') {
+        // If using nginx proxy (API URL is /api), connect to current host
+        socketUrl = `${window.location.protocol}//${window.location.host}`;
+      } else {
+        // Default to localhost:5000 for direct container access
+        socketUrl = 'http://localhost:5000';
+      }
       
       const newSocket = io(socketUrl, {
         // Disable auto connect - we'll connect manually after token is available

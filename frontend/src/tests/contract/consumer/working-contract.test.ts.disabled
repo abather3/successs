@@ -1,4 +1,4 @@
-import { Pact, Interaction, Matchers } from '@pact-foundation/pact';
+import { Pact, Matchers } from '@pact-foundation/pact';
 import axios from 'axios';
 import path from 'path';
 
@@ -15,7 +15,7 @@ describe('Working Contract Test Demo', () => {
       log: path.resolve(process.cwd(), 'logs', 'pact.log'),
       dir: path.resolve(process.cwd(), 'pacts'),
       spec: 2,
-      logLevel: 'INFO'
+      logLevel: 'info'
     });
 
     await provider.setup();
@@ -44,7 +44,8 @@ describe('Working Contract Test Demo', () => {
         refreshToken: like('jwt.refresh.token')
       };
 
-      const interaction: Interaction = {
+      // Use the correct Pact v13 addInteraction method
+      await provider.addInteraction({
         state: 'user exists with valid credentials',
         uponReceiving: 'a login request with valid credentials',
         withRequest: {
@@ -62,9 +63,7 @@ describe('Working Contract Test Demo', () => {
           },
           body: expectedResponse
         }
-      };
-
-      await provider.addInteraction(interaction);
+      });
 
       // Make the request
       axios.defaults.baseURL = 'http://localhost:3234';

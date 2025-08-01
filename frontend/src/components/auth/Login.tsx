@@ -4,10 +4,13 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import CircularLogo from '../CircularLogo';
 
-// Debug helper to log with timestamp
+// Production-safe debug logging - disabled by default
 const logWithTimestamp = (message: string, data?: any) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [LOGIN] ${message}`, data || '');
+  // Only log in development if DEBUG_LOGIN is explicitly enabled
+  if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_DEBUG_LOGIN === 'true') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [LOGIN] ${message}`, data || '');
+  }
 };
 
 const Login: React.FC = () => {
@@ -19,14 +22,14 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Log initial component state
-  logWithTimestamp('Login component mounted/re-rendered', {
-    user: user ? { id: user.id, email: user.email } : null,
-    isLoading,
-    error,
-    pathname: location.pathname,
-    hasSuccessMessage: !!successMessage
-  });
+  // Log initial component state (disabled to prevent excessive re-rendering)
+  // logWithTimestamp('Login component mounted/re-rendered', {
+  //   user: user ? { id: user.id, email: user.email } : null,
+  //   isLoading,
+  //   error,
+  //   pathname: location.pathname,
+  //   hasSuccessMessage: !!successMessage
+  // });
 
   // Check for success message from password reset
   useEffect(() => {

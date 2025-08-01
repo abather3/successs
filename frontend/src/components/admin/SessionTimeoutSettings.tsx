@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
   CardContent,
   CardHeader,
-  Grid,
   TextField,
   FormControlLabel,
   Switch,
@@ -43,10 +42,24 @@ export const SessionTimeoutSettingsComponent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const loadSettingsCallback = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await SettingsApi.getSessionTimeoutSettings();
+      setSettings(data);
+    } catch (err) {
+      setError('Failed to load session timeout settings');
+      console.error('Error loading settings:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Load settings on component mount
   useEffect(() => {
-    loadSettings();
-  }, []);
+    loadSettingsCallback();
+  }, [loadSettingsCallback]);
 
   const loadSettings = async () => {
     try {
@@ -98,8 +111,11 @@ export const SessionTimeoutSettingsComponent: React.FC = () => {
       
       // Reload settings to ensure consistency
       await loadSettings();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save settings');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : (err as any)?.response?.data?.error || 'Failed to save settings';
+      setError(errorMessage);
       console.error('Error saving settings:', err);
     } finally {
       setSaving(false);
@@ -110,7 +126,7 @@ export const SessionTimeoutSettingsComponent: React.FC = () => {
     loadSettings();
   };
 
-  const handleSettingChange = (key: keyof SessionTimeoutSettings, value: any) => {
+  const handleSettingChange = (key: keyof SessionTimeoutSettings, value: string | number | boolean) => {
     setSettings(prev => ({
       ...prev,
       [key]: value

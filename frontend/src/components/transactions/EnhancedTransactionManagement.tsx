@@ -105,15 +105,18 @@ const EnhancedTransactionManagement: React.FC = () => {
   const { socket } = useSocket();
   
   // Consistent currency formatting function
-  const formatCurrency = (amount: number): string => {
-    if (isNaN(amount) || amount === null || amount === undefined) return '₱0.00';
-    if (amount === 0) return '₱0.00';
+  const formatCurrency = (amount: number | string): string => {
+    // Convert string to number if needed
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    
+    if (isNaN(numAmount) || numAmount === null || numAmount === undefined) return '₱0.00';
+    if (numAmount === 0) return '₱0.00';
     return new Intl.NumberFormat('en-PH', {
       style: 'currency',
       currency: 'PHP',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(amount);
+    }).format(numAmount);
   };
   
   // State management
@@ -421,11 +424,26 @@ const EnhancedTransactionManagement: React.FC = () => {
     }
     
     setLoadingHistory(true);
+    console.log(`[SETTLEMENT_HISTORY] Loading history for transaction ${transactionId}`);
+    
     try {
       const history = await TransactionApi.getSettlementHistory(transactionId);
-      setSettlementHistory(history);
+      console.log(`[SETTLEMENT_HISTORY] Successfully loaded ${history.length} settlements for transaction ${transactionId}:`, history);
+      setSettlementHistory(history || []);
     } catch (err) {
-      console.error('Error loading settlement history:', err);
+      console.error(`[SETTLEMENT_HISTORY] Error loading settlement history for transaction ${transactionId}:`, err);
+      
+      // Check if it's an authentication error
+      if (err instanceof Error && err.message.includes('Network error: HTTP error! status: 401')) {
+        console.warn('[SETTLEMENT_HISTORY] Authentication required - user may need to log in again');
+        setError('Authentication required. Please refresh the page and log in again.');
+      } else if (err instanceof Error && err.message.includes('Network error: HTTP error! status: 500')) {
+        console.warn('[SETTLEMENT_HISTORY] Server error occurred');
+        setError('Server error occurred while loading settlement history.');
+      } else {
+        console.warn('[SETTLEMENT_HISTORY] Unknown error occurred:', err);
+      }
+      
       setSettlementHistory([]);
     } finally {
       setLoadingHistory(false);
@@ -949,23 +967,31 @@ const EnhancedTransactionManagement: React.FC = () => {
     
     setLoading(true);
     try {
-      // In a real application, this would be an API call
-      // await api.delete(`/api/daily-reports/${deleteDate}`);
+      // Make the actual API call to delete the report from the database
+      const result = await TransactionApi.deleteDailyReport(deleteDate);
       
-      // Remove the report from the local state
-      setPastReports(prevReports => prevReports.filter(report => report.date !== deleteDate));
+      if (result.success) {
+        // Remove the report from the local state
+        setPastReports(prevReports => prevReports.filter(report => report.date !== deleteDate));
+        
+        // Refresh the daily reports list to ensure consistency
+        await loadDailyReports();
+        
+        // Log the activity (in a real app, this would be sent to the server)
+        console.log(`ADMIN ACTION: ${user?.full_name} deleted daily report for ${deleteDate} at ${new Date().toISOString()}`);
+        
+        setDeleteReportDialog(false);
+        setDeleteDate('');
+        
+        // Show success message
+        alert(`Daily report for ${new Date(deleteDate).toLocaleDateString()} has been deleted successfully.`);
+      } else {
+        throw new Error(result.message || 'Failed to delete daily report');
+      }
       
-      // Log the activity (in a real app, this would be sent to the server)
-      console.log(`ADMIN ACTION: ${user?.full_name} deleted daily report for ${deleteDate} at ${new Date().toISOString()}`);
-      
-      setDeleteReportDialog(false);
-      setDeleteDate('');
-      
-      // Show success message
-      alert(`Daily report for ${new Date(deleteDate).toLocaleDateString()} has been deleted successfully.`);
-      
-    } catch (err) {
-      setError('Failed to delete daily report. Please try again.');
+    } catch (err: any) {
+      console.error('Error deleting daily report:', err);
+      setError(`Failed to delete daily report: ${err.message || 'Please try again.'}`);
     } finally {
       setLoading(false);
     }
@@ -1068,7 +1094,7 @@ const EnhancedTransactionManagement: React.FC = () => {
                 Total Amount
               </Typography>
               <Typography variant="h6" color="primary">
-                ₱{transaction.amount.toLocaleString()}
+                {formatCurrency(transaction.amount)}
               </Typography>
             </Box>
             <Box sx={{ textAlign: 'right' }}>
@@ -1088,7 +1114,7 @@ const EnhancedTransactionManagement: React.FC = () => {
                 Paid Amount
               </Typography>
               <Typography variant="body1" color="success.main">
-                ₱{transaction.paid_amount.toLocaleString()}
+                {formatCurrency(transaction.paid_amount)}
               </Typography>
             </Box>
             <Box sx={{ textAlign: 'right' }}>
@@ -1096,7 +1122,7 @@ const EnhancedTransactionManagement: React.FC = () => {
                 Balance
               </Typography>
               <Typography variant="body1" color={transaction.balance_amount > 0 ? 'error.main' : 'success.main'}>
-                ₱{transaction.balance_amount.toLocaleString()}
+                {formatCurrency(transaction.balance_amount)}
               </Typography>
             </Box>
           </Box>
@@ -1159,7 +1185,7 @@ const EnhancedTransactionManagement: React.FC = () => {
               <TableRow key={transaction.id}>
                 <TableCell>{transaction.or_number}</TableCell>
                 <TableCell>{transaction.customer_name}</TableCell>
-                <TableCell>₱{transaction.amount.toLocaleString()}</TableCell>
+                <TableCell>{formatCurrency(transaction.amount)}</TableCell>
                 <TableCell>
                   <Chip 
                     label={getPaymentModeLabel(transaction.payment_mode)}
@@ -1177,10 +1203,10 @@ const EnhancedTransactionManagement: React.FC = () => {
                 <TableCell>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                     <Typography variant="body2" color="success.main">
-                      Paid: ₱{transaction.paid_amount.toLocaleString()}
+                      Paid: {formatCurrency(transaction.paid_amount)}
                     </Typography>
                     <Typography variant="body2" color={transaction.balance_amount > 0 ? 'error.main' : 'success.main'}>
-                      Balance: ₱{transaction.balance_amount.toLocaleString()}
+                      Balance: {formatCurrency(transaction.balance_amount)}
                     </Typography>
                   </Box>
                 </TableCell>
@@ -2549,7 +2575,7 @@ const EnhancedTransactionManagement: React.FC = () => {
         <DialogContent>
           {selectedTransaction && (
             <Stack spacing={3} sx={{ mt: 2 }}>
-              <Box sx={{ p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+              <Box sx={{ p: 2, backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : '#f5f5f5', borderRadius: 1 }}>
                 <Typography variant="h6" gutterBottom>
                   Transaction Details
                 </Typography>
@@ -2640,7 +2666,7 @@ const EnhancedTransactionManagement: React.FC = () => {
               />
               
               {settlementAmount > 0 && (
-                <Box sx={{ p: 2, backgroundColor: '#e8f5e8', borderRadius: 1 }}>
+                <Box sx={{ p: 2, backgroundColor: theme.palette.mode === 'dark' ? 'rgba(46, 204, 113, 0.1)' : '#e8f5e8', borderRadius: 1 }}>
                   <Typography variant="body2" color="text.secondary">
                     After this settlement:
                   </Typography>

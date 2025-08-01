@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-07-27T00:00:00.000Z",
+  "flags": {
+    "legacy-express-middleware": {
+      "name": "legacy-express-middleware",
+      "enabled": false,
+      "description": "Use legacy Express middleware version",
+      "dependencies": [
+        "express@4.18.2"
+      ],
+      "environments": [
+        "production"
+      ],
+      "createdAt": "2025-07-01T00:00:00.000Z",
+      "updatedAt": "2025-07-01T00:00:00.000Z"
+    },
+    "new-react-components": {
+      "name": "new-react-components",
+      "enabled": false,
+      "description": "Enable new React component architecture",
+      "dependencies": [
+        "react@19.1.0"
+      ],
+      "rolloutPercentage": 10,
+      "environments": [
+        "development",
+        "staging"
+      ],
+      "createdAt": "2025-07-01T00:00:00.000Z",
+      "updatedAt": "2025-07-01T00:00:00.000Z"
+    },
+    "enhanced-database-pooling": {
+      "name": "enhanced-database-pooling",
+      "enabled": false,
+      "description": "Use enhanced database connection pooling",
+      "dependencies": [
+        "pg@8.16.3"
+      ],
+      "environments": [
+        "staging",
+        "production"
+      ],
+      "createdAt": "2025-07-01T00:00:00.000Z",
+      "updatedAt": "2025-07-01T00:00:00.000Z"
+    },
+    "websocket-v2": {
+      "name": "websocket-v2",
+      "enabled": false,
+      "description": "Enable WebSocket v2 implementation",
+      "dependencies": [
+        "socket.io@4.8.1"
+      ],
+      "rolloutPercentage": 0,
+      "environments": [
+        "development"
+      ],
+      "createdAt": "2025-07-01T00:00:00.000Z",
+      "updatedAt": "2025-07-01T00:00:00.000Z"
+    }
+  }
+}
+

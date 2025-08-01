@@ -1,0 +1,624 @@
+version: '3.8'
+
+services:
+  # Production PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/db_name
+      POSTGRES_USER_FILE: /run/secrets/db_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      # Production PostgreSQL settings
+      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=md5"
+      # Performance settings
+      POSTGRES_SHARED_PRELOAD_LIBRARIES: 'pg_stat_statements'
+    secrets:
+      - db_name
+      - db_user
+      - db_password
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./database/production/init:/docker-entrypoint-initdb.d
+      - ./database/production/config/postgresql.conf:/etc/postgresql/postgresql.conf
+      # Backup directory
+      - postgres_backups:/var/backups/postgresql
+    # Remove exposed ports for security (internal network only)
+    expose:
+      - "5432"
+    networks:
+      - escashop_network_prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/db_user) -d $$(cat /run/secrets/db_name)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    # Security: non-root user
+    user: postgres
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Production Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: escashop_redis_prod
+    restart: unless-stopped
+    command: >
+      redis-server 
+      --requirepass $$(cat /run/secrets/redis_password)
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-keepalive 300
+      --timeout 0
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data_prod:/data
+      - ./config/redis/redis-prod.conf:/usr/local/etc/redis/redis.conf
+    # Remove exposed ports for security
+    expose:
+      - "6379"
+    networks:
+      - escashop_network_prod
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    # Security: non-root user
+    user: redis
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Production Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+    image: escashop/backend:${VERSION:-latest}
+    container_name: escashop_backend_prod
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      
+      # Database Configuration (using secrets)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      # These will be read from secrets by the application
+      DB_NAME_FILE: /run/secrets/db_name
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      
+      # Redis Configuration (using secrets)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_DB: 0
+      REDIS_CONNECT_TIMEOUT: 10000
+      REDIS_COMMAND_TIMEOUT: 5000
+      
+      # JWT Configuration (using secrets)
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      TOKEN_ROTATION_ENABLED: true
+      
+      # CORS and Frontend (using environment variable)
+      FRONTEND_URL: ${FRONTEND_URL:-https://yourdomain.com}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://yourdomain.com}
+      CORS_CREDENTIALS: true
+      
+      # Enhanced Security Settings
+      PASSWORD_MIN_LENGTH: 12
+      PASSWORD_REQUIRE_UPPERCASE: true
+      PASSWORD_REQUIRE_LOWERCASE: true
+      PASSWORD_REQUIRE_NUMBERS: true
+      PASSWORD_REQUIRE_SYMBOLS: true
+      SESSION_TIMEOUT: 300000
+      BCRYPT_ROUNDS: 12
+      
+      # Production Rate Limiting
+      RATE_LIMIT_WINDOW: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      RATE_LIMIT_SKIP_SUCCESSFUL_REQUESTS: false
+      RATE_LIMIT_SKIP_FAILED_REQUESTS: false
+      
+      # Production Logging
+      LOG_LEVEL: warn
+      LOG_FILE: /app/logs/app.log
+      LOG_TO_CONSOLE: false
+      LOG_TO_FILE: true
+      LOG_ROTATION: true
+      LOG_MAX_SIZE: 100MB
+      LOG_MAX_FILES: 10
+      ERROR_LOG_FILE: /app/logs/error.log
+      
+      # Feature Flags (Production)
+      ENABLE_UNIQUE_SETTLEMENT_INDEX: true
+      ENABLE_SETTLEMENT_TRACING: true
+      ENABLE_SETTLEMENT_MONITORING: true
+      ENABLE_DEBUG_ROUTES: false
+      ENABLE_MOCK_DATA: false
+      ENABLE_API_DOCS: false
+      ENABLE_METRICS: true
+      
+      # Trust Proxy Settings (for Nginx)
+      TRUST_PROXY: true
+      PROXY_COUNT: 1
+      
+      # File upload settings
+      MAX_FILE_SIZE: 5242880
+      UPLOAD_PATH: /app/uploads
+      ALLOWED_FILE_TYPES: "jpg,jpeg,png,pdf,doc,docx"
+      
+      # Email configuration (production)
+      EMAIL_SERVICE: ${EMAIL_SERVICE:-smtp}
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_SECURE: ${EMAIL_SECURE:-true}
+      EMAIL_USER_FILE: /run/secrets/email_user
+      EMAIL_PASSWORD_FILE: /run/secrets/email_password
+      
+      # SMS configuration (production)
+      SMS_PROVIDER: vonage
+      VONAGE_API_KEY_FILE: /run/secrets/vonage_api_key
+      VONAGE_API_SECRET_FILE: /run/secrets/vonage_api_secret
+      
+      # Monitoring and Health
+      HEALTH_CHECK_ENABLED: true
+      METRICS_ENABLED: true
+      METRICS_PORT: 9090
+      
+      # Security headers
+      HELMET_ENABLED: true
+      CSP_ENABLED: true
+      
+      # Database connection pool
+      DB_POOL_MIN: 5
+      DB_POOL_MAX: 20
+      DB_POOL_IDLE_TIMEOUT: 30000
+      DB_POOL_CONNECTION_TIMEOUT: 60000
+      
+      # Timezone
+      TZ: Asia/Manila
+      
+      # Application versioning
+      APP_VERSION: ${VERSION:-1.0.0}
+      
+    secrets:
+      - db_name
+      - db_user
+      - db_password
+      - redis_password
+      - jwt_secret
+      - jwt_refresh_secret
+      - vonage_api_key
+      - vonage_api_secret
+      - email_user
+      - email_password
+      - google_sheets_api_key
+    volumes:
+      # Read-only application code
+      - type: bind
+        source: ./backend/dist
+        target: /app/dist
+        read_only: true
+      # Writable directories
+      - backend_logs_prod:/app/logs
+      - backend_uploads_prod:/app/uploads
+      - backend_temp_prod:/app/temp
+    # Remove exposed ports (internal network only)
+    expose:
+      - "5000"
+      - "9090"  # Metrics port
+    networks:
+      - escashop_network_prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      # Restart policy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    # Security: non-root user
+    user: node
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Production Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - REACT_APP_VERSION=${VERSION:-1.0.0}
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+    image: escashop/frontend:${VERSION:-latest}
+    container_name: escashop_frontend_prod
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Remove direct API URL for security (use relative paths through Nginx)
+      REACT_APP_API_URL: /api
+      REACT_APP_WS_URL: ${WS_URL:-wss://yourdomain.com}
+      REACT_APP_VERSION: ${VERSION:-1.0.0}
+      REACT_APP_ENV: production
+      
+      # Security settings
+      GENERATE_SOURCEMAP: false
+      INLINE_RUNTIME_CHUNK: false
+      
+      # Performance settings
+      NODE_OPTIONS: "--max-old-space-size=1024"
+      
+    # Remove exposed ports (internal network only)
+    expose:
+      - "3000"
+    networks:
+      - escashop_network_prod
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+      # Restart policy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    # Security: non-root user
+    user: nextjs
+    # Read-only root filesystem for security
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Production Nginx Reverse Proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: escashop_nginx_prod
+    restart: unless-stopped
+    volumes:
+      # Configuration files
+      - type: bind
+        source: ./nginx/nginx.prod.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+      - type: bind
+        source: ./nginx/conf.d
+        target: /etc/nginx/conf.d
+        read_only: true
+      # SSL certificates
+      - type: bind
+        source: ./nginx/ssl
+        target: /etc/nginx/ssl
+        read_only: true
+      # Static assets (if any)
+      - type: bind
+        source: ./frontend/build/static
+        target: /usr/share/nginx/html/static
+        read_only: true
+      # Logs
+      - nginx_logs_prod:/var/log/nginx
+      # Cache
+      - nginx_cache_prod:/var/cache/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - escashop_network_prod
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    # Security configurations
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Production Monitoring with Prometheus (Optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: escashop_prometheus_prod
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prod:/prometheus
+    expose:
+      - "9090"
+    networks:
+      - escashop_network_prod
+    profiles:
+      - monitoring
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Production Grafana Dashboard (Optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: escashop_grafana_prod
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN:-localhost}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN:-localhost}/grafana/
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana_data_prod:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    expose:
+      - "3000"
+    networks:
+      - escashop_network_prod
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  # Log aggregation with Fluentd (Optional)
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: escashop_fluentd_prod
+    restart: unless-stopped
+    volumes:
+      - ./logging/fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - backend_logs_prod:/var/log/backend:ro
+      - nginx_logs_prod:/var/log/nginx:ro
+    expose:
+      - "24224"
+    networks:
+      - escashop_network_prod
+    profiles:
+      - logging
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+# Production Docker Secrets
+secrets:
+  db_name:
+    file: ./secrets/db_name.txt
+  db_user:
+    file: ./secrets/db_user.txt
+  db_password:
+    file: ./secrets/db_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  jwt_refresh_secret:
+    file: ./secrets/jwt_refresh_secret.txt
+  vonage_api_key:
+    file: ./secrets/vonage_api_key.txt
+  vonage_api_secret:
+    file: ./secrets/vonage_api_secret.txt
+  email_user:
+    file: ./secrets/email_user.txt
+  email_password:
+    file: ./secrets/email_password.txt
+  google_sheets_api_key:
+    file: ./secrets/google_sheets_api_key.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
+
+# Production Named Volumes
+volumes:
+  # Database
+  postgres_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/escashop/postgres
+  postgres_backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/backups/escashop/postgres
+  
+  # Redis
+  redis_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/escashop/redis
+  
+  # Application data
+  backend_logs_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/log/escashop/backend
+  backend_uploads_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/escashop/uploads
+  backend_temp_prod:
+    driver: local
+  
+  # Nginx
+  nginx_logs_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/log/escashop/nginx
+  nginx_cache_prod:
+    driver: local
+  
+  # Monitoring
+  prometheus_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/escashop/prometheus
+  grafana_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/escashop/grafana
+
+# Production Network Configuration
+networks:
+  escashop_network_prod:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.22.0.0/16
+    # Enhanced security
+    driver_opts:
+      com.docker.network.bridge.name: escashop_prod_bridge
+      com.docker.network.bridge.enable_icc: "false"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+    # Network isolation enabled

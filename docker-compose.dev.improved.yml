@@ -1,0 +1,349 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escashop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_secure_password_123
+      # Development-specific settings
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_INITDB_ARGS: "--auth-host=trust --auth-local=trust"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+      # Add development seed data
+      - ./database/seeds/dev:/docker-entrypoint-initdb.d/seeds
+    ports:
+      - "5432:5432"
+    networks:
+      - escashop_network_dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d escashop"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Development-specific resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: escashop_redis_dev
+    restart: unless-stopped
+    command: redis-server --requirepass "redis_secure_password_456" --appendonly yes --save 60 1000
+    volumes:
+      - redis_data_dev:/data
+      # Add Redis configuration for development
+      - ./config/redis/redis-dev.conf:/usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    networks:
+      - escashop_network_dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # Development resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Backend API (Development mode)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        - NODE_ENV=development
+    container_name: escashop_backend_dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escashop
+      DB_USER: postgres
+      DB_PASSWORD: postgres_secure_password_123
+      DATABASE_URL: postgresql://postgres:postgres_secure_password_123@postgres:5432/escashop
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_secure_password_456
+      REDIS_DB: 0
+      
+      # JWT Configuration (Development keys)
+      JWT_SECRET: jwt_super_secret_key_for_development_only_change_in_production
+      JWT_REFRESH_SECRET: jwt_refresh_super_secret_key_for_development_only_change_in_production
+      JWT_EXPIRES_IN: 30m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      TOKEN_ROTATION_ENABLED: true
+      
+      # CORS and Frontend
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://frontend:3000"
+      
+      # Security Settings (Relaxed for development)
+      PASSWORD_MIN_LENGTH: 6
+      SESSION_TIMEOUT: 600000
+      BCRYPT_ROUNDS: 8
+      
+      # Rate Limiting (More permissive for development)
+      RATE_LIMIT_WINDOW: 900000
+      RATE_LIMIT_MAX_REQUESTS: 1000
+      RATE_LIMIT_SKIP_FAILED_REQUESTS: true
+      
+      # Logging (Enhanced for development)
+      LOG_LEVEL: debug
+      LOG_FILE: /app/logs/app.log
+      LOG_TO_CONSOLE: true
+      LOG_SQL_QUERIES: true
+      LOG_HTTP_REQUESTS: true
+      
+      # Development-specific settings
+      ENABLE_REQUEST_LOGGING: true
+      ENABLE_QUERY_LOGGING: true
+      ENABLE_HOT_RELOAD: true
+      DISABLE_AUTHENTICATION: false
+      
+      # Feature Flags
+      ENABLE_UNIQUE_SETTLEMENT_INDEX: true
+      ENABLE_SETTLEMENT_TRACING: true
+      ENABLE_SETTLEMENT_MONITORING: true
+      ENABLE_DEBUG_ROUTES: true
+      ENABLE_MOCK_DATA: true
+      
+      # Trust Proxy Settings
+      TRUST_PROXY: true
+      PROXY_COUNT: 1
+      
+      # Development tools
+      ENABLE_GRAPHQL_PLAYGROUND: true
+      ENABLE_API_DOCS: true
+      
+      # File upload settings
+      MAX_FILE_SIZE: 10485760
+      UPLOAD_PATH: /app/uploads
+      
+      # Email configuration (development)
+      EMAIL_SERVICE: ethereal
+      EMAIL_DEBUG: true
+      
+      # SMS configuration (development)
+      SMS_PROVIDER: mock
+      SMS_DEBUG: true
+      
+      # Timezone
+      TZ: Asia/Manila
+
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+      # Add development-specific mounts
+      - ./backend/tests:/app/tests
+      - ./backend/scripts:/app/scripts
+      - ./backend/docs:/app/docs
+    ports:
+      - "5000:5000"
+      # Additional development ports
+      - "9229:9229"  # Node.js debugger
+      - "9230:9230"  # Inspector protocol
+    networks:
+      - escashop_network_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits for development
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Frontend (Development mode with optimizations)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        - NODE_ENV=development
+    container_name: escashop_frontend_dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      REACT_APP_API_URL: ""
+      REACT_APP_WS_URL: ws://localhost:5000
+      REACT_APP_ENV: development
+      
+      # React dev server configuration
+      HOST: 0.0.0.0
+      PORT: 3000
+      BROWSER: none
+      
+      # Development-specific React settings
+      REACT_APP_DEBUG: true
+      REACT_APP_MOCK_API: false
+      REACT_APP_ENABLE_REDUX_DEVTOOLS: true
+      
+      # Memory optimization settings
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 2000
+      WATCHPACK_POLLING: true
+      WDS_SOCKET_HOST: localhost
+      WDS_SOCKET_PORT: 3000
+      FAST_REFRESH: true
+      
+      # Node.js memory settings
+      NODE_OPTIONS: "--max-old-space-size=4096 --max-semi-space-size=512"
+      
+      # Development build settings
+      GENERATE_SOURCEMAP: true
+      INLINE_RUNTIME_CHUNK: false
+      
+      # Webpack settings
+      WEBPACK_WORKERS: 2
+      ESM_EXTERNALS: false
+      
+      # Development feature flags
+      REACT_APP_FEATURE_ANALYTICS: true
+      REACT_APP_FEATURE_DEBUG_PANEL: true
+      
+      # Performance monitoring (development)
+      REACT_APP_ENABLE_PROFILER: true
+      
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      # Add development-specific mounts
+      - ./frontend/public:/app/public
+      - ./frontend/tests:/app/tests
+      - ./frontend/docs:/app/docs
+    ports:
+      - "3000:3000"
+      # Additional frontend development ports
+      - "3001:3001"  # Storybook (if used)
+    networks:
+      - escashop_network_dev
+    depends_on:
+      - backend
+    # Resource limits optimized for development
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+    # Shared memory size for better performance
+    shm_size: '2gb'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Development Database Admin Tool (Optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: escashop_pgadmin_dev
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@escashop.dev
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin_data_dev:/var/lib/pgadmin
+    ports:
+      - "8080:80"
+    networks:
+      - escashop_network_dev
+    depends_on:
+      - postgres
+    # Only for development
+    profiles:
+      - tools
+
+  # Redis Admin Tool (Optional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: escashop_redis_commander_dev
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+      REDIS_PASSWORD: redis_secure_password_456
+    ports:
+      - "8081:8081"
+    networks:
+      - escashop_network_dev
+    depends_on:
+      - redis
+    # Only for development
+    profiles:
+      - tools
+
+  # Development Email Testing (Mailhog)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: escashop_mailhog_dev
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP server
+      - "8025:8025"  # Web interface
+    networks:
+      - escashop_network_dev
+    # Only for development
+    profiles:
+      - tools
+
+# Named volumes for data persistence
+volumes:
+  postgres_data_dev:
+    driver: local
+  redis_data_dev:
+    driver: local
+  pgadmin_data_dev:
+    driver: local
+
+# Custom network
+networks:
+  escashop_network_dev:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+    # Enable IPv6 for development
+    enable_ipv6: false
+    # Custom DNS for development
+    driver_opts:
+      com.docker.network.bridge.name: escashop_dev_bridge

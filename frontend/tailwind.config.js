@@ -1,9 +1,18 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    "./src/**/*.{js,jsx,ts,tsx}",
-    "./public/index.html"
-  ],
+  content: {
+    files: [
+      "./src/**/*.{js,jsx,ts,tsx}",
+      "./public/index.html"
+    ],
+    // Optimize content extraction
+    options: {
+      // Use faster, less memory-intensive scanning
+      safelist: [],
+      // Exclude node_modules and other directories
+      blocklist: [],
+    },
+  },
   darkMode: 'class',
   theme: {
     extend: {

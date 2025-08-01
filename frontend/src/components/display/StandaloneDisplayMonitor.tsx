@@ -823,3 +823,6 @@ const StandaloneDisplayMonitor: React.FC = () => {
 };
 
 export default StandaloneDisplayMonitor;
+
+// Ensure this file is treated as a module
+export {};

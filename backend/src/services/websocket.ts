@@ -56,6 +56,8 @@ export const setupWebSocketHandlers = (io: Server): void => {
           message = error.message;
         } else if (error instanceof Error) {
           message = error.message;
+        } else {
+          message = String(error);
         }
         // Emit auth error
         WebSocketService.emitAuthError(socket, code, message);
@@ -313,6 +315,15 @@ static emitTransactionUpdate(data: any, traceId?: string): void {
   static emitBroadcast(message: any): void {
     if (this.io) {
       this.io.emit('broadcast', message);
+    }
+  }
+
+  static broadcastToAll(event: string, data: any): void {
+    if (this.io) {
+      this.io.emit(event, data);
+      console.log(`[WEBSOCKET] Broadcasted '${event}' to all connected clients`);
+    } else {
+      console.warn(`[WEBSOCKET] Cannot broadcast '${event}' - IO not initialized`);
     }
   }
 

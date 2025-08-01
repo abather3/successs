@@ -1,0 +1,193 @@
+version: '3.8'
+
+services:
+  # Railway Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+    image: escashop/backend:${VERSION:-latest}
+    container_name: escashop_backend_railway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-5000}
+      
+      # Railway Database Configuration (managed PostgreSQL)
+      DATABASE_URL: ${DATABASE_URL}
+      PGDATABASE_URL: ${PGDATABASE_URL}  # Railway's PostgreSQL URL
+      
+      # Railway Redis Configuration (managed Redis)
+      REDIS_URL: ${REDIS_URL}  # Railway's Redis URL
+      
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      TOKEN_ROTATION_ENABLED: ${TOKEN_ROTATION_ENABLED:-true}
+      
+      # CORS and Frontend URLs
+      FRONTEND_URL: ${FRONTEND_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      CORS_CREDENTIALS: ${CORS_CREDENTIALS:-true}
+      
+      # Security Settings
+      PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+      PASSWORD_REQUIRE_UPPERCASE: ${PASSWORD_REQUIRE_UPPERCASE:-true}
+      PASSWORD_REQUIRE_LOWERCASE: ${PASSWORD_REQUIRE_LOWERCASE:-true}
+      PASSWORD_REQUIRE_NUMBERS: ${PASSWORD_REQUIRE_NUMBERS:-true}
+      PASSWORD_REQUIRE_SYMBOLS: ${PASSWORD_REQUIRE_SYMBOLS:-true}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-300000}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      
+      # Rate Limiting
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      RATE_LIMIT_SKIP_SUCCESSFUL_REQUESTS: ${RATE_LIMIT_SKIP_SUCCESSFUL_REQUESTS:-false}
+      RATE_LIMIT_SKIP_FAILED_REQUESTS: ${RATE_LIMIT_SKIP_FAILED_REQUESTS:-false}
+      
+      # Logging Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      LOG_TO_CONSOLE: ${LOG_TO_CONSOLE:-true}
+      LOG_TO_FILE: ${LOG_TO_FILE:-false}
+      
+      # Feature Flags
+      ENABLE_UNIQUE_SETTLEMENT_INDEX: ${ENABLE_UNIQUE_SETTLEMENT_INDEX:-true}
+      ENABLE_SETTLEMENT_TRACING: ${ENABLE_SETTLEMENT_TRACING:-true}
+      ENABLE_SETTLEMENT_MONITORING: ${ENABLE_SETTLEMENT_MONITORING:-true}
+      ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
+      ENABLE_MOCK_DATA: ${ENABLE_MOCK_DATA:-false}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      
+      # File Upload Settings
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-5242880}
+      UPLOAD_PATH: ${UPLOAD_PATH:-/app/uploads}
+      ALLOWED_FILE_TYPES: ${ALLOWED_FILE_TYPES:-jpg,jpeg,png,pdf,doc,docx}
+      
+      # Email Configuration
+      EMAIL_SERVICE: ${EMAIL_SERVICE:-smtp}
+      EMAIL_HOST: ${EMAIL_HOST}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_SECURE: ${EMAIL_SECURE:-true}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+      
+      # SMS Configuration
+      SMS_PROVIDER: ${SMS_PROVIDER:-vonage}
+      VONAGE_API_KEY: ${VONAGE_API_KEY}
+      VONAGE_API_SECRET: ${VONAGE_API_SECRET}
+      
+      # Google Sheets Integration
+      GOOGLE_SHEETS_URL: ${GOOGLE_SHEETS_URL}
+      
+      # Health Check and Monitoring
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      
+      # Security Headers
+      HELMET_ENABLED: ${HELMET_ENABLED:-true}
+      CSP_ENABLED: ${CSP_ENABLED:-true}
+      
+      # Timezone
+      TZ: ${TZ:-Asia/Manila}
+      
+      # Application Version
+      APP_VERSION: ${VERSION:-1.0.0}
+      
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    volumes:
+      # Uploads directory (Railway persistent storage)
+      - backend_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-5000}/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    # Railway optimized resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    # Logging for Railway
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Railway Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - REACT_APP_VERSION=${VERSION:-1.0.0}
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+    image: escashop/frontend:${VERSION:-latest}
+    container_name: escashop_frontend_railway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # API URL for Railway (use relative path or Railway backend URL)
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-/api}
+      REACT_APP_WS_URL: ${REACT_APP_WS_URL}
+      REACT_APP_VERSION: ${VERSION:-1.0.0}
+      REACT_APP_ENV: production
+      
+      # Security settings
+      GENERATE_SOURCEMAP: false
+      INLINE_RUNTIME_CHUNK: false
+      
+      # Performance settings
+      NODE_OPTIONS: "--max-old-space-size=1024"
+      
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Railway optimized resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.125'
+    # Logging for Railway
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "2"
+
+# Railway Volumes (persistent storage)
+volumes:
+  backend_uploads:
+    driver: local
+
+# Railway doesn't need custom networks - it handles networking automatically
+networks:
+  default:
+    name: railway_network

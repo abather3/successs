@@ -75,8 +75,10 @@ export class QueueAnalyticsService {
         event.isPriority ? 1 : 0
       ]);
       
-      // Skip complex analytics updates for now
-      // await this.updateHourlyAnalytics();
+      // Update hourly analytics (async, non-blocking)
+      this.updateHourlyAnalytics().catch(error => {
+        console.error('Failed to update hourly analytics:', error);
+      });
     } catch (error) {
       console.error('Failed to record queue event:', error);
       // Don't throw error to prevent blocking customer creation
@@ -216,9 +218,53 @@ export class QueueAnalyticsService {
     `;
 
     const result = await pool.query(summaryQuery, [targetDate]);
-    const summary = result.rows[0];
+    let summary = result.rows[0];
+    console.log('Daily Summary Data from queue_analytics:', summary);
 
-    if (summary && summary.total_customers > 0) {
+    // If no data from queue_analytics, fallback to customers table
+    if (!summary || (!summary.total_customers && !summary.customers_served)) {
+      console.log('No queue_analytics data found, generating from customers table...');
+      
+      const customerSummaryQuery = `
+        WITH customer_metrics AS (
+          SELECT 
+            COUNT(*) as total_customers,
+            COUNT(*) FILTER (WHERE 
+              priority_flags->>'senior_citizen' = 'true' OR 
+              priority_flags->>'pregnant' = 'true' OR 
+              priority_flags->>'pwd' = 'true'
+            ) as priority_customers,
+            COUNT(*) FILTER (WHERE queue_status = 'completed') as customers_served,
+            COUNT(*) FILTER (WHERE queue_status = 'cancelled') as customers_cancelled,
+            AVG(
+              CASE 
+                WHEN queue_status IN ('serving', 'processing', 'completed') AND served_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (served_at - created_at))/60.0
+                ELSE EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at))/60.0
+              END
+            ) as avg_wait_time,
+            0 as avg_service_time,
+            MAX(token_number) as peak_queue_length,
+            EXTRACT(HOUR FROM MAX(created_at)) as peak_hour
+          FROM customers 
+          WHERE DATE(created_at) = $1
+        ),
+        busiest_counter_fallback AS (
+          SELECT 1 as counter_id  -- Default fallback
+        )
+        SELECT 
+          cm.*,
+          bc.counter_id as busiest_counter_id
+        FROM customer_metrics cm
+        CROSS JOIN busiest_counter_fallback bc
+      `;
+      
+      const customerResult = await pool.query(customerSummaryQuery, [targetDate]);
+      summary = customerResult.rows[0];
+      console.log('Daily Summary Data from customers table:', summary);
+    }
+
+    if (summary && (summary.total_customers > 0 || summary.customers_served > 0)) {
       const upsertQuery = `
         INSERT INTO daily_queue_summary (
           date, total_customers, priority_customers,

@@ -11,7 +11,9 @@ export class EmailService {
       // In a real implementation, you would use a service like SendGrid, AWS SES, or Nodemailer
       // For now, we'll simulate the email sending
       
-      const resetLink = `${config.FRONTEND_URL}/reset-password/${resetToken}`;
+      // Use first URL from comma-separated FRONTEND_URL for email links
+      const firstFrontendUrl = config.FRONTEND_URL.split(',')[0].trim();
+      const resetLink = `${firstFrontendUrl}/reset-password/${resetToken}`;
       
       console.log(`
 ==================================================
@@ -71,7 +73,9 @@ EscaShop Optical Team
         }
       });
 
-      const resetLink = `${config.FRONTEND_URL}/reset-password/${resetToken}`;
+      // Use first URL from comma-separated FRONTEND_URL for email links
+      const firstFrontendUrl = config.FRONTEND_URL.split(',')[0].trim();
+      const resetLink = `${firstFrontendUrl}/reset-password/${resetToken}`;
       
       const mailOptions = {
         from: config.EMAIL_FROM,
@@ -125,7 +129,7 @@ Temporary Password: ${temporaryPassword}
 
 Please log in and change your password immediately for security reasons.
 
-Login URL: ${config.FRONTEND_URL}/login
+Login URL: ${config.FRONTEND_URL.split(',')[0].trim()}/login
 
 Best regards,
 EscaShop Optical Team
@@ -170,7 +174,7 @@ EscaShop Optical Team
             <h3>Your temporary login credentials:</h3>
             <p><strong>Email:</strong> ${email}</p>
             <p><strong>Temporary Password:</strong> ${temporaryPassword}</p>
-            <p><strong>Login URL:</strong> <a href="${config.FRONTEND_URL}/login">${config.FRONTEND_URL}/login</a></p>
+            <p><strong>Login URL:</strong> <a href="${config.FRONTEND_URL.split(',')[0].trim()}/login">${config.FRONTEND_URL.split(',')[0].trim()}/login</a></p>
             <p><em>Please log in and change your password immediately for security reasons.</em></p>
             <br>
             <p>Best regards,<br>EscaShop Optical Team</p>

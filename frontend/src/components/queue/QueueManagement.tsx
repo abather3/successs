@@ -137,7 +137,7 @@ const SortableTableRow = ({ customer, onServe, onComplete, onProcessing, onSendS
               <SmsIcon />
             </IconButton>
           </Tooltip>
-          {customer.queue_status === 'waiting' && (
+          {(customer.queue_status === 'waiting' || customer.queue_status === 'serving' || customer.queue_status === 'processing') && (
             <Tooltip title="Cancel Customer - Remove customer from queue" arrow>
               <IconButton 
                 size="small" 
@@ -285,7 +285,7 @@ const SortableQueueCard = ({ customer, onServe, onComplete, onProcessing, onSend
           >
             SMS
           </Button>
-          {customer.queue_status === 'waiting' && (
+          {(customer.queue_status === 'waiting' || customer.queue_status === 'serving' || customer.queue_status === 'processing') && (
             <Button 
               variant="outlined" 
               color="error"
@@ -419,9 +419,31 @@ const QueueManagement = () => {
       }
     } catch (error) {
       console.error('Error fetching queue:', error);
+      
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Failed to fetch queue data';
+      if (error instanceof Error) {
+        if (error.message === 'Request timeout') {
+          console.error('[QueueManagement] API Request timeout - server may be slow or unresponsive');
+          errorMessage = 'Request timeout. The server is taking too long to respond. Please check your connection and try again.';
+        } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+          console.error('[QueueManagement] Authentication error (401) - user may need to log in again');
+          errorMessage = 'Authentication required. Please log in again to access queue data.';
+        } else if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+          console.error('[QueueManagement] Server error (500) - backend service issue');
+          errorMessage = 'Server error. The backend service is experiencing issues. Please try again later.';
+        } else {
+          console.error('[QueueManagement] Other API error:', error.message);
+          errorMessage = `Failed to fetch queue data: ${error.message}`;
+        }
+      } else {
+        console.error('[QueueManagement] Unknown error type:', error);
+        errorMessage = 'An unexpected error occurred while fetching queue data.';
+      }
+      
       setSnackbar({
         open: true,
-        message: `Failed to fetch queue data: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: errorMessage,
         severity: 'error'
       });
     } finally {

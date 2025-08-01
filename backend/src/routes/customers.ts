@@ -319,36 +319,102 @@ router.get('/stats/sales-agent', authenticateToken, requireSalesOrAdmin, logActi
   }
 });
 
-// Export single customer to Excel
-router.get('/:id/export/excel', authenticateToken, logActivity('export_customer_excel'), async (req: AuthRequest, res: Response): Promise<void> => {
+// Export multiple customers to Excel (MUST be before single customer routes)
+router.post('/export/excel', authenticateToken, logActivity('export_customers_excel'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const customerId = Number(id);
-    if (!Number.isInteger(customerId)) {
-      res.status(400).json({ error: 'Invalid customer id' });
-      return;
-    }
-
-    const buffer = await ExportService.exportCustomerToExcel(customerId);
+    console.log('[CustomersRoute] Bulk Excel export request received');
+    const { searchTerm, statusFilter, dateFilter } = req.body;
+    const buffer = await ExportService.exportCustomersToExcel(searchTerm, statusFilter, dateFilter);
     
+    console.log(`[CustomersRoute] Bulk Excel export successful, buffer size: ${buffer.length}`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=customer-${id}.xlsx`);
+    res.setHeader('Content-Disposition', 'attachment; filename=customers.xlsx');
     res.send(buffer);
   } catch (error) {
-    console.error('Error exporting customer to Excel:', error);
-    if (error instanceof Error && error.message === 'Customer not found') {
-      res.status(404).json({ error: error.message });
+    console.error('[CustomersRoute] Error exporting customers to Excel:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export multiple customers to PDF (MUST be before single customer routes)
+router.post('/export/pdf', authenticateToken, logActivity('export_customers_pdf'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    console.log('[CustomersRoute] Bulk PDF export request received');
+    const { searchTerm, statusFilter, dateFilter } = req.body;
+    const buffer = await ExportService.exportCustomersToPDF(searchTerm, statusFilter, dateFilter);
+    
+    console.log(`[CustomersRoute] Bulk PDF export successful, buffer size: ${buffer.length}`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename=customers.pdf');
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.send(buffer);
+  } catch (error) {
+    console.error('[CustomersRoute] Error exporting customers to PDF:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export multiple customers to Google Sheets (MUST be before single customer routes)
+router.post('/export/sheets', authenticateToken, logActivity('export_customers_sheets'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    console.log('[CustomersRoute] Bulk Google Sheets export request received');
+    const { searchTerm, statusFilter, dateFilter } = req.body;
+    const result = await ExportService.exportCustomersToGoogleSheets(searchTerm, statusFilter, dateFilter);
+    console.log('[CustomersRoute] Bulk Google Sheets export successful');
+    res.json(result);
+  } catch (error) {
+    console.error('[CustomersRoute] Error exporting customers to Google Sheets:', error);
+    if (error instanceof Error && error.message === 'Google Sheets URL not configured') {
+      res.status(500).json({ error: 'Google Sheets integration not configured' });
     } else {
       res.status(500).json({ error: 'Internal server error' });
     }
   }
 });
 
-// Export single customer to PDF
-router.get('/:id/export/pdf', authenticateToken, logActivity('export_customer_pdf'), async (req: AuthRequest, res: Response): Promise<void> => {
+// Export single customer to Excel
+router.post('/:id/export/excel', authenticateToken, logActivity('export_customer_excel'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const customerId = Number(id);
+    console.log(`[CustomersRoute] Single Excel export request for customer ID: ${customerId}`);
+    
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      console.error(`[CustomersRoute] Invalid customer ID: ${id}`);
+      res.status(400).json({ error: 'Invalid customer ID. Must be a positive integer.' });
+      return;
+    }
+
+    console.log(`[CustomersRoute] Calling ExportService.exportCustomerToExcel(${customerId})`);
+    const buffer = await ExportService.exportCustomerToExcel(customerId);
+    
+    console.log(`[CustomersRoute] Single Excel export successful, buffer size: ${buffer.length}`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=customer-${id}.xlsx`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.send(buffer);
+  } catch (error) {
+    console.error('[CustomersRoute] Error exporting customer to Excel:', error);
+    if (error instanceof Error && error.message === 'Customer not found') {
+      res.status(404).json({ error: error.message });
+    } else if (error instanceof Error) {
+      res.status(500).json({ error: `Export error: ${error.message}` });
+    } else {
+      res.status(500).json({ error: 'Internal server error during Excel export' });
+    }
+  }
+});
+
+// Export single customer to PDF
+router.post('/:id/export/pdf', authenticateToken, logActivity('export_customer_pdf'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const customerId = Number(id);
+    console.log(`[CustomersRoute] Single PDF export request for customer ID: ${customerId}`);
+    
     if (!Number.isInteger(customerId)) {
       res.status(400).json({ error: 'Invalid customer id' });
       return;
@@ -356,11 +422,16 @@ router.get('/:id/export/pdf', authenticateToken, logActivity('export_customer_pd
 
     const buffer = await ExportService.exportCustomerToPDF(customerId);
     
+    console.log(`[CustomersRoute] Single PDF export successful, buffer size: ${buffer.length}`);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=customer-${id}.pdf`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.send(buffer);
   } catch (error) {
-    console.error('Error exporting customer to PDF:', error);
+    console.error('[CustomersRoute] Error exporting customer to PDF:', error);
     if (error instanceof Error && error.message === 'Customer not found') {
       res.status(404).json({ error: error.message });
     } else {
@@ -374,64 +445,21 @@ router.post('/:id/export/sheets', authenticateToken, logActivity('export_custome
   try {
     const { id } = req.params;
     const customerId = Number(id);
+    console.log(`[CustomersRoute] Single Google Sheets export request for customer ID: ${customerId}`);
+    
     if (!Number.isInteger(customerId)) {
       res.status(400).json({ error: 'Invalid customer id' });
       return;
     }
 
     const result = await ExportService.exportCustomerToGoogleSheets(customerId);
+    console.log(`[CustomersRoute] Single Google Sheets export successful`);
     res.json(result);
   } catch (error) {
-    console.error('Error exporting customer to Google Sheets:', error);
+    console.error('[CustomersRoute] Error exporting customer to Google Sheets:', error);
     if (error instanceof Error && error.message === 'Customer not found') {
       res.status(404).json({ error: error.message });
     } else if (error instanceof Error && error.message === 'Google Sheets URL not configured') {
-      res.status(500).json({ error: 'Google Sheets integration not configured' });
-    } else {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-});
-
-// Export multiple customers to Excel
-router.post('/export/excel', authenticateToken, logActivity('export_customers_excel'), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { searchTerm, statusFilter, dateFilter } = req.body;
-    const buffer = await ExportService.exportCustomersToExcel(searchTerm, statusFilter, dateFilter);
-    
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=customers.xlsx');
-    res.send(buffer);
-  } catch (error) {
-    console.error('Error exporting customers to Excel:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Export multiple customers to PDF
-router.post('/export/pdf', authenticateToken, logActivity('export_customers_pdf'), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { searchTerm, statusFilter, dateFilter } = req.body;
-    const buffer = await ExportService.exportCustomersToPDF(searchTerm, statusFilter, dateFilter);
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=customers.pdf');
-    res.send(buffer);
-  } catch (error) {
-    console.error('Error exporting customers to PDF:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Export multiple customers to Google Sheets
-router.post('/export/sheets', authenticateToken, logActivity('export_customers_sheets'), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { searchTerm, statusFilter, dateFilter } = req.body;
-    const result = await ExportService.exportCustomersToGoogleSheets(searchTerm, statusFilter, dateFilter);
-    res.json(result);
-  } catch (error) {
-    console.error('Error exporting customers to Google Sheets:', error);
-    if (error instanceof Error && error.message === 'Google Sheets URL not configured') {
       res.status(500).json({ error: 'Google Sheets integration not configured' });
     } else {
       res.status(500).json({ error: 'Internal server error' });

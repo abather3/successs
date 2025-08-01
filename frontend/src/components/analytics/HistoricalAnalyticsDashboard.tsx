@@ -5,7 +5,6 @@ import {
   CardContent,
   Typography,
   Button,
-  TextField,
   FormControl,
   InputLabel,
   Select,
@@ -15,12 +14,7 @@ import {
   CircularProgress,
   Tooltip,
   IconButton,
-  Stack,
-  Grid,
-  LinearProgress,
   Chip,
-  Divider,
-  Badge,
   Paper,
   Table,
   TableBody,
@@ -30,52 +24,29 @@ import {
   TableRow,
   Tabs,
   Tab,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Switch,
-  FormControlLabel,
+  Badge,
   List,
   ListItem,
   ListItemText,
   ListItemIcon,
   Avatar,
-  useTheme,
-  alpha
+  useTheme
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
-  Download as DownloadIcon,
   TrendingUp as TrendingUpIcon,
   People as PeopleIcon,
   AccessTime as AccessTimeIcon,
-  Speed as SpeedIcon,
-  Dashboard as DashboardIcon,
-  Timeline as TimelineIcon,
-  BarChart as BarChartIcon,
-  PieChart as PieChartIcon,
-  ShowChart as ShowChartIcon,
-  Assessment as AssessmentIcon,
-  Schedule as ScheduleIcon,
-  Group as GroupIcon,
-  Star as StarIcon,
-  Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Timer as TimerIcon,
-  Store as StoreIcon,
-  Insights as InsightsIcon,
-  CalendarToday as CalendarIcon,
-  FilterList as FilterIcon,
-  Print as PrintIcon,
-  GetApp as GetAppIcon,
-  Settings as SettingsIcon,
   History as HistoryIcon,
   Archive as ArchiveIcon,
   EventNote as EventNoteIcon,
   Autorenew as AutorenewIcon,
-  DataUsage as DataUsageIcon
+  DataUsage as DataUsageIcon,
+  ShowChart as ShowChartIcon,
+  Assessment as AssessmentIcon,
+  Star as StarIcon
 } from '@mui/icons-material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart as RechartsBarChart, Bar, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area } from 'recharts';
 
@@ -111,7 +82,7 @@ interface CustomerHistoryItem {
   phone: string;
   queue_status: string;
   token_number: number;
-  priority_flags: any;
+  priority_flags: Record<string, boolean>;
   wait_time_minutes: number;
   service_duration_minutes: number;
   carried_forward: boolean;
@@ -159,7 +130,7 @@ const HistoricalAnalyticsDashboard: React.FC = () => {
   const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
   const [days, setDays] = useState(30);
   const [currentTab, setCurrentTab] = useState(0);
-  const [customerPage, setCustomerPage] = useState(1);
+  const [customerPage] = useState(1);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -169,7 +140,13 @@ const HistoricalAnalyticsDashboard: React.FC = () => {
   const fetchHistoricalDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      // Use proper API base URL detection
+      const getApiBaseUrl = () => {
+        const currentLocation = window.location;
+        const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+        return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+      };
+      const API_BASE_URL = getApiBaseUrl();
       const response = await fetch(`${API_BASE_URL}/analytics/historical-dashboard?days=${days}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
@@ -201,25 +178,41 @@ const HistoricalAnalyticsDashboard: React.FC = () => {
   const fetchCustomerHistory = useCallback(async () => {
     try {
       setCustomerHistoryLoading(true);
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      const response = await fetch(`${API_BASE_URL}/analytics/customer-history?days=${days}&page=${customerPage}&limit=20`, {
+      // Use proper API base URL detection
+      const getApiBaseUrl = () => {
+        const currentLocation = window.location;
+        const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+        return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+      };
+      const API_BASE_URL = getApiBaseUrl();
+      const url = `${API_BASE_URL}/analytics/customer-history?days=${days}&page=${customerPage}&limit=20`;
+      console.log('🔍 Fetching customer history from:', url);
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
         }
       });
 
+      console.log('📡 Customer history response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Customer history data received:', data);
         if (data.success) {
+          console.log('📋 Setting customer history records:', data.data.length);
           setCustomerHistory(data.data);
         } else {
+          console.error('❌ API returned success=false:', data.error);
           throw new Error(data.error || 'Failed to fetch customer history');
         }
       } else {
+        const errorText = await response.text();
+        console.error('❌ HTTP error response:', errorText);
         throw new Error('Failed to fetch customer history');
       }
     } catch (error) {
-      console.error('Error fetching customer history:', error);
+      console.error('💥 Error fetching customer history:', error);
       setSnackbar({
         open: true,
         message: 'Failed to fetch customer history',
@@ -435,7 +428,7 @@ const HistoricalAnalyticsDashboard: React.FC = () => {
       {/* Tabs for different views */}
       <Card>
         <CardContent>
-          <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
+          <Tabs value={currentTab} onChange={(e: React.SyntheticEvent, newValue: number) => setCurrentTab(newValue)}>
             <Tab label="Daily Trends" icon={<ShowChartIcon />} />
             <Tab label="Efficiency Analysis" icon={<AssessmentIcon />} />
             <Tab label="Reset Logs" icon={<AutorenewIcon />} />

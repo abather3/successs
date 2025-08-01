@@ -2,6 +2,7 @@ import { pool } from '../config/database';
 import { Customer, DistributionType, PaymentMode, QueueStatus, PriorityFlags, Prescription, PaymentInfo, EstimatedTime, PaymentStatus } from '../types';
 import { QueueAnalyticsService } from './QueueAnalyticsService';
 import { WebSocketService } from './websocket';
+import { TransactionService } from './transaction';
 
 export class CustomerService {
   static async create(customerData: {
@@ -63,6 +64,9 @@ export class CustomerService {
       RETURNING *
     `;
 
+    // Convert estimated_time object to total minutes for database storage
+    const totalMinutes = (estimated_time.days * 24 * 60) + (estimated_time.hours * 60) + estimated_time.minutes;
+
     const values = [
       or_number,
       name,
@@ -78,7 +82,7 @@ export class CustomerService {
       grade_type,
       lens_type,
       frame_code,
-      JSON.stringify(estimated_time),
+      totalMinutes, // Store as integer minutes instead of JSON
       JSON.stringify(payment_info),
       remarks,
       JSON.stringify(priority_flags),
@@ -288,7 +292,13 @@ export class CustomerService {
 
     Object.entries(updates).forEach(([key, value]) => {
       if (value !== undefined && key !== 'id' && key !== 'created_at' && key !== 'updated_at') {
-        if (typeof value === 'object' && value !== null) {
+        if (key === 'estimated_time' && typeof value === 'object' && value !== null) {
+          // Convert EstimatedTime object to integer minutes
+          const estimatedTime = value as EstimatedTime;
+          const totalMinutes = this.estimatedTimeToMinutes(estimatedTime);
+          setClause.push(`${key} = $${paramCount}`);
+          values.push(totalMinutes);
+        } else if (typeof value === 'object' && value !== null) {
           setClause.push(`${key} = $${paramCount}`);
           values.push(JSON.stringify(value));
         } else {
@@ -373,26 +383,16 @@ export class CustomerService {
     const amount = paymentInfo.amount || 0;
     const paymentMode = paymentInfo.mode || PaymentMode.CASH;
     
-    const query = `
-      INSERT INTO transactions (
-        customer_id, or_number, amount, payment_mode, 
-        sales_agent_id, cashier_id, transaction_date, paid_amount, payment_status
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, $7, $8)
-    `;
-
-    const values = [
-      customerId,
-      orNumber,
-      amount, // use customer's payment amount
-      paymentMode, // use customer's payment mode
-      salesAgentId,
-      null, // no cashier for initial transaction
-      0, // paid_amount = 0 (still unpaid)
-      PaymentStatus.UNPAID // status = unpaid
-    ];
-
-    await pool.query(query, values);
+    // Use the enhanced TransactionService.create with customer amount enforcement
+    await TransactionService.create({
+      customer_id: customerId,
+      or_number: orNumber,
+      amount: amount, // This will be enforced to match customer's payment_info.amount
+      payment_mode: paymentMode,
+      sales_agent_id: salesAgentId,
+      cashier_id: undefined,
+      enforce_customer_amount: true // Enable enforcement to ensure consistency
+    });
   }
 
   private static async generateTokenNumber(): Promise<number> {
@@ -439,7 +439,9 @@ export class CustomerService {
       prescription: row.prescription && typeof row.prescription === 'string' ? JSON.parse(row.prescription) : row.prescription || null,
       payment_info: row.payment_info && typeof row.payment_info === 'string' ? JSON.parse(row.payment_info) : row.payment_info || null,
       priority_flags: row.priority_flags && typeof row.priority_flags === 'string' ? JSON.parse(row.priority_flags) : row.priority_flags || null,
-      estimated_time: row.estimated_time && typeof row.estimated_time === 'string' ? JSON.parse(row.estimated_time) : row.estimated_time || null,
+      // Convert integer minutes back to EstimatedTime object
+      estimated_time: typeof row.estimated_time === 'number' ? this.minutesToEstimatedTime(row.estimated_time) : 
+                     (row.estimated_time && typeof row.estimated_time === 'string' ? JSON.parse(row.estimated_time) : row.estimated_time || { days: 0, hours: 0, minutes: 0 }),
     };
   }
 

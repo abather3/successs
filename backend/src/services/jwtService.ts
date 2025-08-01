@@ -116,7 +116,8 @@ export class JwtService {
       } else if (error instanceof jwt.JsonWebTokenError) {
         throw new Error(JSON.stringify({ code: 'TOKEN_INVALID', message: error.message }));
       }
-      throw new Error(`Token verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Token verification failed: ${errorMessage}`);
     }
   }
 

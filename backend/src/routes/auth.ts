@@ -12,6 +12,11 @@ import { AccountLockoutService } from '../services/accountLockout';
 import { MfaService } from '../services/mfaService';
 import { JwtService } from '../services/jwtService';
 import { AuthErrors, throwAuthError, asyncErrorHandler } from '../middleware/errorHandler';
+import { 
+  resetPasswordSchema, 
+  verifyTokenSchema, 
+  requestPasswordResetSchema 
+} from '../validation/schemas/auth';
 
 const router: express.Router = Router();
 

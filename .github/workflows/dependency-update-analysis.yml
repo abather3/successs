@@ -1,0 +1,450 @@
+name: Dependency Update Analysis & Testing
+
+on:
+  pull_request:
+    branches: [ develop, main ]
+    paths:
+      - 'package*.json'
+      - 'backend/package*.json'
+      - 'frontend/package*.json'
+  # Trigger on Dependabot PRs
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [ develop, main ]
+
+# Security: Only allow specific actions for external PRs
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+  statuses: write
+
+env:
+  NODE_VERSION: '20.11.1'
+
+jobs:
+  # Check if this is a dependency update PR
+  detect-dependency-update:
+    name: Detect Dependency Update
+    runs-on: ubuntu-latest
+    outputs:
+      is-dependency-update: ${{ steps.check.outputs.is-dependency-update }}
+      updated-packages: ${{ steps.check.outputs.updated-packages }}
+      has-major-updates: ${{ steps.check.outputs.has-major-updates }}
+      pr-author: ${{ steps.check.outputs.pr-author }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if PR is dependency update
+        id: check
+        run: |
+          # Check if PR title contains dependency-related keywords
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          
+          echo "PR Title: $PR_TITLE"
+          echo "PR Author: $PR_AUTHOR"
+          
+          IS_DEPENDENCY_UPDATE=false
+          HAS_MAJOR_UPDATES=false
+          
+          # Check if it's a Dependabot PR or has dependency keywords
+          if [[ "$PR_AUTHOR" == "dependabot[bot]" ]] || \
+             [[ "$PR_TITLE" =~ (deps|dependencies|security|update|upgrade|bump) ]]; then
+            IS_DEPENDENCY_UPDATE=true
+            echo "Detected dependency update PR"
+          fi
+          
+          # Check for major version updates in PR title
+          if [[ "$PR_TITLE" =~ [0-9]+\.[0-9]+\.[0-9]+.*to.*[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Version update detected in title"
+            if [[ "$PR_TITLE" =~ v?[0-9]+\.[0-9]+\.[0-9]+.*to.*v?([0-9]+)\.[0-9]+\.[0-9]+ ]]; then
+              OLD_MAJOR=$(echo "$PR_TITLE" | grep -oE "v?[0-9]+\.[0-9]+\.[0-9]+" | head -1 | sed 's/v//' | cut -d. -f1)
+              NEW_MAJOR=$(echo "$PR_TITLE" | grep -oE "v?[0-9]+\.[0-9]+\.[0-9]+" | tail -1 | sed 's/v//' | cut -d. -f1)
+              if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
+                HAS_MAJOR_UPDATES=true
+                echo "Major version update detected: $OLD_MAJOR -> $NEW_MAJOR"
+              fi
+            fi
+          fi
+          
+          # Get list of changed packages by analyzing git diff
+          UPDATED_PACKAGES=""
+          if [ "$IS_DEPENDENCY_UPDATE" = true ]; then
+            UPDATED_PACKAGES=$(git diff HEAD~1 -- "*/package*.json" "package*.json" | grep -E "^\+.*\".*\":" | sed 's/.*"\([^"]*\)".*/\1/' | sort -u | tr '\n' ',' | sed 's/,$//')
+            echo "Updated packages: $UPDATED_PACKAGES"
+          fi
+          
+          echo "is-dependency-update=$IS_DEPENDENCY_UPDATE" >> $GITHUB_OUTPUT
+          echo "updated-packages=$UPDATED_PACKAGES" >> $GITHUB_OUTPUT
+          echo "has-major-updates=$HAS_MAJOR_UPDATES" >> $GITHUB_OUTPUT
+          echo "pr-author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+
+  # Analyze breaking changes for dependency updates
+  breaking-changes-analysis:
+    name: Breaking Changes Analysis
+    if: needs.detect-dependency-update.outputs.is-dependency-update == 'true'
+    needs: detect-dependency-update
+    runs-on: ubuntu-latest
+    outputs:
+      has-breaking-changes: ${{ steps.analyze.outputs.has-breaking-changes }}
+      analysis-report: ${{ steps.analyze.outputs.analysis-report }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run breaking changes analysis
+        id: analyze
+        run: |
+          echo "🔍 Analyzing breaking changes for dependency updates..."
+          
+          # Install semver for version comparison if not available
+          npm install semver
+          
+          # Run our breaking changes analyzer
+          node scripts/analyze-breaking-changes.js > breaking-changes-report.md
+          
+          # Check if breaking changes were found
+          HAS_BREAKING_CHANGES=false
+          if grep -q "breaking" breaking-changes-report.md; then
+            HAS_BREAKING_CHANGES=true
+          fi
+          
+          # Save report for later use
+          ANALYSIS_REPORT=$(cat breaking-changes-report.md | base64 -w 0)
+          
+          echo "has-breaking-changes=$HAS_BREAKING_CHANGES" >> $GITHUB_OUTPUT
+          echo "analysis-report=$ANALYSIS_REPORT" >> $GITHUB_OUTPUT
+
+      - name: Upload breaking changes report
+        uses: actions/upload-artifact@v4
+        with:
+          name: breaking-changes-analysis-${{ github.run_number }}
+          path: |
+            breaking-changes-report.md
+            dependency-analysis/
+          retention-days: 30
+
+  # Run compatibility tests for dependency updates
+  compatibility-testing:
+    name: Compatibility Testing
+    if: needs.detect-dependency-update.outputs.is-dependency-update == 'true'
+    needs: detect-dependency-update
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite: [unit, integration, e2e]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup PostgreSQL
+        if: matrix.test-suite == 'integration' || matrix.test-suite == 'e2e'
+        uses: harmon758/postgresql-action@v1
+        with:
+          postgresql version: '14'
+          postgresql db: 'escashop_test'
+          postgresql user: 'postgres'
+          postgresql password: 'postgres'
+
+      - name: Setup Redis
+        if: matrix.test-suite == 'integration' || matrix.test-suite == 'e2e'
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: 6
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      - name: Build applications
+        run: |
+          cd backend && npm run build
+          cd ../frontend && npm run build
+
+      - name: Run unit tests
+        if: matrix.test-suite == 'unit'
+        run: |
+          echo "🧪 Running unit tests after dependency update..."
+          cd backend && npm test
+          cd ../frontend && CI=true npm test -- --coverage --watchAll=false
+
+      - name: Run integration tests
+        if: matrix.test-suite == 'integration'
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_SECRET: test-secret-key
+          PORT: 5001
+        run: |
+          echo "🔗 Running integration tests after dependency update..."
+          cd backend
+          npm run migrate:dev
+          npm run test:integration
+
+      - name: Run E2E tests
+        if: matrix.test-suite == 'e2e'
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/escashop_test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_SECRET: test-secret-key
+          PORT: 5001
+        run: |
+          echo "🎭 Running E2E tests after dependency update..."
+          
+          # Start backend
+          cd backend
+          npm run migrate:dev
+          npm start &
+          BACKEND_PID=$!
+          
+          # Wait for backend to be ready
+          timeout 30s bash -c 'until curl -f http://localhost:5001/health; do sleep 1; done'
+          
+          # Start frontend
+          cd ../frontend
+          PORT=3001 npm start &
+          FRONTEND_PID=$!
+          
+          # Wait for frontend to be ready
+          timeout 60s bash -c 'until curl -f http://localhost:3001; do sleep 1; done'
+          
+          # Run E2E tests
+          cd ..
+          npx playwright install --with-deps
+          npm run test:e2e
+          
+          # Cleanup
+          kill $BACKEND_PID $FRONTEND_PID
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-test-results-${{ matrix.test-suite }}-${{ github.run_number }}
+          path: |
+            backend/coverage/
+            frontend/coverage/
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  # Generate impact analysis report
+  impact-analysis:
+    name: Generate Impact Analysis Report
+    if: needs.detect-dependency-update.outputs.is-dependency-update == 'true'
+    needs: [detect-dependency-update, breaking-changes-analysis, compatibility-testing]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate comprehensive impact analysis
+        run: |
+          echo "📊 Generating impact analysis report..."
+          
+          # Create impact analysis script if it doesn't exist
+          cat > scripts/generate-impact-analysis.js << 'EOF'
+          #!/usr/bin/env node
+          
+          const fs = require('fs');
+          const path = require('path');
+          
+          const updatedPackages = process.argv[2] || '';
+          const hasMajorUpdates = process.argv[3] === 'true';
+          const hasBreakingChanges = process.argv[4] === 'true';
+          const prAuthor = process.argv[5] || 'unknown';
+          
+          const report = `# 📊 Dependency Update Impact Analysis
+          
+          ## Summary
+          - **Updated Packages**: ${updatedPackages || 'N/A'}
+          - **Has Major Updates**: ${hasMajorUpdates ? '⚠️ Yes' : '✅ No'}
+          - **Breaking Changes Detected**: ${hasBreakingChanges ? '⚠️ Yes' : '✅ No'}
+          - **PR Author**: ${prAuthor}
+          - **Analysis Date**: ${new Date().toLocaleString()}
+          
+          ## Risk Assessment
+          
+          ${hasMajorUpdates || hasBreakingChanges ? `
+          ### ⚠️ HIGH RISK FACTORS DETECTED
+          
+          ${hasMajorUpdates ? '- **Major version updates** detected - review for breaking changes' : ''}
+          ${hasBreakingChanges ? '- **Breaking changes** identified in dependency updates' : ''}
+          
+          ### Recommended Actions
+          1. Thoroughly review breaking changes documentation
+          2. Run comprehensive test suite
+          3. Perform manual testing of critical user flows
+          4. Consider staging deployment before production
+          5. Prepare rollback plan
+          ` : `
+          ### ✅ LOW RISK UPDATE
+          
+          This appears to be a low-risk dependency update with:
+          - No major version changes
+          - No breaking changes detected
+          - Standard security/patch updates
+          
+          ### Recommended Actions
+          1. Review automated test results
+          2. Merge after successful CI/CD pipeline
+          `}
+          
+          ## Test Results Summary
+          
+          - Unit Tests: ${fs.existsSync('artifacts/compatibility-test-results-unit-' + process.env.GITHUB_RUN_NUMBER) ? '✅ Available' : '❌ Not available'}
+          - Integration Tests: ${fs.existsSync('artifacts/compatibility-test-results-integration-' + process.env.GITHUB_RUN_NUMBER) ? '✅ Available' : '❌ Not available'}
+          - E2E Tests: ${fs.existsSync('artifacts/compatibility-test-results-e2e-' + process.env.GITHUB_RUN_NUMBER) ? '✅ Available' : '❌ Not available'}
+          
+          ## Next Steps
+          
+          1. **Review Test Results**: Check all automated test results for failures
+          2. **Security Scan**: Ensure no new vulnerabilities are introduced
+          3. **Performance Impact**: Monitor for performance regressions
+          4. **Documentation**: Update any relevant documentation
+          5. **Deployment**: Follow standard deployment procedures
+          
+          ---
+          
+          *This report was automatically generated by the EscaShop dependency update analysis system.*
+          `;
+          
+          fs.writeFileSync('impact-analysis-report.md', report);
+          console.log('Impact analysis report generated successfully');
+          EOF
+          
+          # Run the impact analysis generator
+          node scripts/generate-impact-analysis.js \
+            "${{ needs.detect-dependency-update.outputs.updated-packages }}" \
+            "${{ needs.detect-dependency-update.outputs.has-major-updates }}" \
+            "${{ needs.breaking-changes-analysis.outputs.has-breaking-changes }}" \
+            "${{ needs.detect-dependency-update.outputs.pr-author }}"
+
+      - name: Upload impact analysis report
+        uses: actions/upload-artifact@v4
+        with:
+          name: impact-analysis-report-${{ github.run_number }}
+          path: |
+            impact-analysis-report.md
+            artifacts/
+          retention-days: 30
+
+      - name: Comment PR with impact analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = './impact-analysis-report.md';
+            
+            if (fs.existsSync(reportPath)) {
+              const report = fs.readFileSync(reportPath, 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: report
+              });
+            }
+
+      - name: Set PR status based on risk assessment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const hasMajorUpdates = '${{ needs.detect-dependency-update.outputs.has-major-updates }}' === 'true';
+            const hasBreakingChanges = '${{ needs.breaking-changes-analysis.outputs.has-breaking-changes }}' === 'true';
+            
+            let state = 'success';
+            let description = 'Low risk dependency update - safe to merge';
+            
+            if (hasMajorUpdates || hasBreakingChanges) {
+              state = 'pending';
+              description = 'High risk update detected - manual review required';
+            }
+            
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: state,
+              target_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+              description: description,
+              context: 'Dependency Impact Analysis'
+            });
+
+  # Auto-approve low-risk Dependabot PRs
+  auto-approve-dependabot:
+    name: Auto-approve Safe Dependabot PRs
+    if: |
+      needs.detect-dependency-update.outputs.pr-author == 'dependabot[bot]' &&
+      needs.detect-dependency-update.outputs.has-major-updates == 'false' &&
+      needs.breaking-changes-analysis.outputs.has-breaking-changes == 'false'
+    needs: [detect-dependency-update, breaking-changes-analysis, compatibility-testing, impact-analysis]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Auto-approve safe Dependabot PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: '✅ Auto-approved: Low-risk dependency update with no breaking changes detected and all tests passing.'
+            });
+
+      - name: Add auto-merge label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['auto-merge-candidate']
+            });

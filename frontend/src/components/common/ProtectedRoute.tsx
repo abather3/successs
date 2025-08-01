@@ -4,10 +4,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { UserRole } from '../../types';
 import { CircularProgress, Box } from '@mui/material';
 
-// Debug helper to log with timestamp
+// Production-safe debug logging - disabled by default
 const logWithTimestamp = (message: string, data?: any) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [PROTECTED_ROUTE] ${message}`, data || '');
+  // Only log in development if DEBUG_ROUTES is explicitly enabled
+  if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_DEBUG_ROUTES === 'true') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [PROTECTED_ROUTE] ${message}`, data || '');
+  }
 };
 
 interface ProtectedRouteProps {

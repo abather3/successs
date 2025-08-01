@@ -1,7 +1,37 @@
 import axios from 'axios';
 import { AuthResponse, User } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Use consistent API URL logic for Docker development
+// Prioritize nginx proxy detection over environment variables
+const getApiBaseUrl = () => {
+  const currentLocation = window.location;
+  console.log('[AUTH] Location detection:', {
+    port: currentLocation.port,
+    protocol: currentLocation.protocol,
+    host: currentLocation.host,
+    href: currentLocation.href
+  });
+  
+  // First priority: Detect nginx proxy access (port 80 or no port specified)
+  const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+  
+  if (isNginxProxy) {
+    console.log('[AUTH] Detected nginx proxy access - using /api');
+    return '/api';
+  }
+  
+  // Second priority: Explicit environment variable for direct access
+  if (process.env.REACT_APP_API_URL) {
+    console.log('[AUTH] Using environment variable:', process.env.REACT_APP_API_URL);
+    return process.env.REACT_APP_API_URL;
+  }
+  
+  // Fallback: Use proxy path
+  console.log('[AUTH] Using fallback - /api');
+  return '/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,

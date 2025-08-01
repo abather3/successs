@@ -12,6 +12,7 @@ export class TransactionService {
     payment_mode: PaymentMode;
     sales_agent_id: number;
     cashier_id?: number;
+    enforce_customer_amount?: boolean; // New flag to enforce customer payment amount
   }): Promise<Transaction> {
     const {
       customer_id,
@@ -19,22 +20,34 @@ export class TransactionService {
       amount,
       payment_mode,
       sales_agent_id,
-      cashier_id
+      cashier_id,
+      enforce_customer_amount = false
     } = transactionData;
+
+    let finalAmount = amount;
+    
+    // If enforce_customer_amount is true, use customer's payment_info.amount
+    if (enforce_customer_amount) {
+      const customer = await CustomerService.findById(customer_id);
+      if (customer && customer.payment_info && customer.payment_info.amount) {
+        finalAmount = customer.payment_info.amount;
+        console.log(`[TRANSACTION_CREATE] Enforcing customer payment amount: ${finalAmount} for customer ${customer_id}`);
+      }
+    }
 
     const query = `
       INSERT INTO transactions (
         customer_id, or_number, amount, payment_mode, 
-        sales_agent_id, cashier_id, transaction_date, paid_amount, payment_status
+        sales_agent_id, cashier_id, transaction_date, paid_amount, balance_amount, payment_status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, 0, 'unpaid')
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, 0, $3, 'unpaid')
       RETURNING *
     `;
 
     const values = [
       customer_id,
       or_number,
-      amount,
+      finalAmount, // Use finalAmount instead of amount
       payment_mode,
       sales_agent_id,
       cashier_id
@@ -203,8 +216,8 @@ SELECT
     const traceId = settlementRequestId || `UPDATE_${Date.now()}`;
     console.log(`[TRANSACTION_TRACE] ${traceId}: Starting updatePaymentStatus for transaction ${txId}`);
     
-    // First, get current transaction state for comparison
-    const currentQuery = `SELECT * FROM transactions WHERE id = $1`;
+    // Use a pessimistic lock to prevent race conditions during updates
+    const currentQuery = `SELECT * FROM transactions WHERE id = $1 FOR UPDATE`;
     const currentResult = client ? await client.query(currentQuery, [txId]) : await pool.query(currentQuery, [txId]);
     const currentTransaction = currentResult.rows[0];
     const oldStatus = currentTransaction?.payment_status;
@@ -215,6 +228,11 @@ SELECT
     const query = `
       UPDATE transactions
       SET paid_amount = COALESCE((
+        SELECT SUM(amount)
+        FROM payment_settlements
+        WHERE transaction_id = $1
+      ), 0),
+      balance_amount = amount - COALESCE((
         SELECT SUM(amount)
         FROM payment_settlements
         WHERE transaction_id = $1
@@ -280,6 +298,12 @@ SELECT
     payment_mode?: PaymentMode;
     cashier_id?: number;
   }): Promise<Transaction> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Lock the transaction row before updating
+      await client.query('SELECT * FROM transactions WHERE id = $1 FOR UPDATE', [id]);
     const setClause: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
@@ -304,7 +328,7 @@ SELECT
       RETURNING *
     `;
 
-    const result = await pool.query(query, values);
+    const result = await client.query(query, values);
     
     if (result.rows.length === 0) {
       throw new Error('Transaction not found');
@@ -314,8 +338,10 @@ SELECT
 
     // Check if amount was updated to trigger payment status recalculation
     if (updates.amount !== undefined) {
-      await TransactionService.updatePaymentStatus(id);
+      await TransactionService.updatePaymentStatus(id, undefined, client);
     }
+
+    await client.query('COMMIT');
 
     // Emit real-time update
     WebSocketService.emitTransactionUpdate({
@@ -325,14 +351,30 @@ SELECT
     });
 
     return transaction;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async delete(id: number): Promise<void> {
-    const query = `DELETE FROM transactions WHERE id = $1`;
-    const result = await pool.query(query, [id]);
-    
-    if (result.rowCount === 0) {
-      throw new Error('Transaction not found');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT * FROM transactions WHERE id = $1 FOR UPDATE', [id]);
+      const query = `DELETE FROM transactions WHERE id = $1`;
+      const result = await client.query(query, [id]);
+      if (result.rowCount === 0) {
+        throw new Error('Transaction not found');
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
 
     // Emit real-time update
@@ -684,5 +726,25 @@ export class ReportService {
 
     const row = result.rows[0];
     return this.normalizeDailyReport(row);
+  }
+
+  static async deleteDailyReport(date: string): Promise<boolean> {
+    const query = `
+      DELETE FROM daily_reports
+      WHERE date = $1
+    `;
+
+    const result = await pool.query(query, [date]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  static async getAllDailyReports(): Promise<DailyReport[]> {
+    const query = `
+      SELECT * FROM daily_reports
+      ORDER BY date DESC
+    `;
+
+    const result = await pool.query(query);
+    return result.rows.map(row => this.normalizeDailyReport(row));
   }
 }

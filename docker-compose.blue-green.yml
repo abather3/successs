@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: escashop_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escashop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - escashop_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d escashop"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  green_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: escashop_green_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escashop
+      DB_USER: postgres
+    secrets:
+      - db_password
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+    ports:
+      - "5001:5001"
+    networks:
+      - escashop_network
+
+  blue_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: escashop_blue_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escashop
+      DB_USER: postgres
+    secrets:
+      - db_password
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+    ports:
+      - "5002:5002"
+    networks:
+      - escashop_network
+
+  green_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: escashop_green_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:5001
+    ports:
+      - "3001:3001"
+    networks:
+      - escashop_network
+
+  blue_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: escashop_blue_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:5002
+    ports:
+      - "3002:3002"
+    networks:
+      - escashop_network
+
+networks:
+  escashop_network:
+    driver: bridge
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+volumes:
+  postgres_data:
+    driver: local
+

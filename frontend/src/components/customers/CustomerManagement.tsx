@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import { useNotification } from '../../contexts/NotificationContext';
-import { useLocation } from 'react-router-dom';
+import { apiGet, apiPost, apiPut, apiDelete, parseApiResponse, authenticatedApiRequest, apiBinaryDownload } from '../../utils/api';
 import { EstimatedTime } from '../../types';
 import { formatEstimatedTime } from '../../utils/formatters';
 import {
@@ -196,6 +197,7 @@ const CustomerManagement: React.FC = () => {
   const [lensTypes, setLensTypes] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [registeredCustomer, setRegisteredCustomer] = useState<any>(null);
   
   const [formData, setFormData] = useState<CustomerFormData>({
@@ -289,22 +291,35 @@ const CustomerManagement: React.FC = () => {
         ...(dateFilter.end && { endDate: dateFilter.end })
       });
       
-      const response = await fetch(`/api/customers?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        }
-      });
+      console.log('[CustomerManagement] Fetching customers with params:', params.toString());
+      const response = await apiGet(`/customers?${params}`);
+      const data = await parseApiResponse(response);
       
-      if (response.ok) {
-        const data = await response.json();
-        setCustomers(data.customers || []);
-        setTotalCustomers(data.pagination?.total || 0);
-      } else {
-        setErrorMessage('Failed to fetch customers');
-      }
+      setCustomers(data.customers || []);
+      setTotalCustomers(data.pagination?.total || 0);
+      console.log('[CustomerManagement] Successfully fetched customers:', data.customers?.length || 0);
     } catch (error) {
       console.error('Error fetching customers:', error);
-      setErrorMessage('Error fetching customers');
+      
+      // Enhanced error handling with specific messages
+      if (error instanceof Error) {
+        if (error.message === 'Request timeout') {
+          console.error('[CustomerManagement] API Request timeout - server may be slow or unresponsive');
+          setErrorMessage('Request timeout. The server is taking too long to respond. Please check your connection and try again.');
+        } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+          console.error('[CustomerManagement] Authentication error (401) - user may need to log in again');
+          setErrorMessage('Authentication required. Please log in again to access customer data.');
+        } else if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+          console.error('[CustomerManagement] Server error (500) - backend service issue');
+          setErrorMessage('Server error. The backend service is experiencing issues. Please try again later.');
+        } else {
+          console.error('[CustomerManagement] Other API error:', error.message);
+          setErrorMessage(`Error fetching customers: ${error.message}`);
+        }
+      } else {
+        console.error('[CustomerManagement] Unknown error type:', error);
+        setErrorMessage('An unexpected error occurred while fetching customers.');
+      }
     } finally {
       setLoading(false);
     }
@@ -313,35 +328,39 @@ const CustomerManagement: React.FC = () => {
   const fetchDropdownOptions = async () => {
     try {
       const [gradeResponse, lensResponse] = await Promise.all([
-        fetch('/api/customers/dropdown/grade-types', {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
-        }),
-        fetch('/api/customers/dropdown/lens-types', {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
-        })
+        apiGet('/customers/dropdown/grade-types'),
+        apiGet('/customers/dropdown/lens-types')
       ]);
       
       // Define excluded options
       const excludedGradeTypes = ['Bifocal', 'Reading', 'Single Vision'];
       const excludedLensTypes = ['CR-39', 'High Index', 'Trivex', 'Polycarbonate', 'Blue Light Filter'];
       
-      if (gradeResponse.ok) {
-        const gradeData = await gradeResponse.json();
+      try {
+        const gradeData = await parseApiResponse(gradeResponse);
         const filteredGradeTypes = gradeData
           .map((item: any) => item.name)
           .filter((name: string) => !excludedGradeTypes.includes(name));
         setGradeTypes(filteredGradeTypes);
+      } catch (error) {
+        console.error('Error parsing grade types:', error);
+        setGradeTypes([]);
       }
       
-      if (lensResponse.ok) {
-        const lensData = await lensResponse.json();
+      try {
+        const lensData = await parseApiResponse(lensResponse);
         const filteredLensTypes = lensData
           .map((item: any) => item.name)
           .filter((name: string) => !excludedLensTypes.includes(name));
         setLensTypes(filteredLensTypes);
+      } catch (error) {
+        console.error('Error parsing lens types:', error);
+        setLensTypes([]);
       }
     } catch (error) {
       console.error('Error fetching dropdown options:', error);
+      setGradeTypes([]);
+      setLensTypes([]);
     }
   };
 
@@ -389,6 +408,7 @@ const CustomerManagement: React.FC = () => {
     
     // Clear any previous error messages
     setErrorMessage('');
+    setFieldErrors({});
     
     try {
       const submissionData = {
@@ -420,84 +440,89 @@ const CustomerManagement: React.FC = () => {
       };
       
       const isEditing = editingCustomer !== null;
-      const url = isEditing ? `/api/customers/${editingCustomer.id}` : '/api/customers';
-      const method = isEditing ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
-        method: method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        },
-        body: JSON.stringify(submissionData)
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (isEditing) {
-          setSuccessMessage(`Customer ${result.name} updated successfully!`);
-          setEditingCustomer(null);
-        } else {
-          setRegisteredCustomer(result);
-          setSuccessMessage(`Customer registered successfully! OR Number: ${result.or_number}`);
-        }
-        setShowForm(false);
-        setActiveStep(0);
-        // Reset form
-        setFormData({
-          or_number: '',
-          name: '',
-          contact_number: '',
-          email: '',
-          age: '',
-          address: '',
-          occupation: '',
-          distribution_info: '',
-          doctor_assigned: '',
-          prescription: {
-            od: '',
-            os: '',
-            ou: '',
-            pd: '',
-            add: ''
-          },
-          grade_type: '',
-          lens_type: '',
-          frame_code: '',
-          estimated_time: {
-            days: '',
-            hours: '',
-            minutes: ''
-          },
-          payment_info: {
-            mode: '',
-            amount: ''
-          },
-          remarks: '',
-          priority_flags: {
-            senior_citizen: false,
-            pregnant: false,
-            pwd: false
-          }
-        });
-        fetchCustomers();
+      let response;
+      if (isEditing) {
+        response = await apiPut(`/customers/${editingCustomer.id}`, submissionData);
       } else {
-        const error = await response.json();
-        console.error('Server validation error:', error);
-        
-        // Handle detailed validation errors
-        if (error.details && Array.isArray(error.details)) {
-          const fieldErrors = error.details.map((detail: any) => 
-            `${detail.field}: ${detail.message}`
-          ).join(', ');
-          setErrorMessage(`Validation failed - ${fieldErrors}`);
-        } else {
-          setErrorMessage(error.message || error.error || (isEditing ? 'Error updating customer' : 'Error registering customer'));
-        }
+        response = await apiPost('/customers', submissionData);
       }
-    } catch (error) {
+      
+      const result = await parseApiResponse(response);
+      
+      if (isEditing) {
+        setSuccessMessage(`Customer ${result.name} updated successfully!`);
+        setEditingCustomer(null);
+      } else {
+        setRegisteredCustomer(result);
+        setSuccessMessage(`Customer registered successfully! OR Number: ${result.or_number}`);
+      }
+      setShowForm(false);
+      setActiveStep(0);
+      // Reset form
+      setFormData({
+        or_number: '',
+        name: '',
+        contact_number: '',
+        email: '',
+        age: '',
+        address: '',
+        occupation: '',
+        distribution_info: '',
+        doctor_assigned: '',
+        prescription: {
+          od: '',
+          os: '',
+          ou: '',
+          pd: '',
+          add: ''
+        },
+        grade_type: '',
+        lens_type: '',
+        frame_code: '',
+        estimated_time: {
+          days: '',
+          hours: '',
+          minutes: ''
+        },
+        payment_info: {
+          mode: '',
+          amount: ''
+        },
+        remarks: '',
+        priority_flags: {
+          senior_citizen: false,
+          pregnant: false,
+          pwd: false
+        }
+      });
+      fetchCustomers();
+    } catch (error: any) {
       console.error('Error submitting form:', error);
-      setErrorMessage('Error submitting form. Please try again.');
+      
+      // Handle detailed validation errors from API response
+      if (error.details && Array.isArray(error.details)) {
+        // Create field-specific error mapping
+        const newFieldErrors: Record<string, string> = {};
+        const errorSummary: string[] = [];
+        
+        error.details.forEach((detail: any) => {
+          const fieldName = detail.field || detail.param;
+          const fieldMessage = detail.message || detail.msg;
+          
+          // Map API field names to form field names
+          const fieldDisplayName = getFieldDisplayName(fieldName);
+          newFieldErrors[fieldName] = fieldMessage;
+          errorSummary.push(`${fieldDisplayName}: ${fieldMessage}`);
+        });
+        
+        setFieldErrors(newFieldErrors);
+        setErrorMessage(`Validation Failed. Please check the following fields: ${errorSummary.join(', ')}`);
+      } else if (error.message) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage(editingCustomer ? 'Error updating customer' : 'Error registering customer');
+      }
     }
   };
 
@@ -508,28 +533,238 @@ const CustomerManagement: React.FC = () => {
         printWindow.document.write(`
           <html>
             <head>
-              <title>Customer Token</title>
+              <title>Customer Token - ${registeredCustomer.or_number}</title>
               <style>
-                body { font-family: Arial, sans-serif; text-align: center; }
-                .token { font-size: 24px; font-weight: bold; margin: 20px; }
-                .details { margin: 10px; }
+                * {
+                  margin: 0;
+                  padding: 0;
+                  box-sizing: border-box;
+                }
+                
+                body {
+                  font-family: 'Segoe UI', 'Arial', sans-serif;
+                  text-align: center;
+                  background: #fff;
+                  color: #333;
+                  line-height: 1.4;
+                }
+                
+                .token-container {
+                  max-width: 58mm;
+                  margin: 0 auto;
+                  padding: 8px;
+                  border: 2px solid #2c5aa0;
+                  border-radius: 8px;
+                  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                }
+                
+                .header {
+                  font-size: 16px;
+                  font-weight: bold;
+                  color: #2c5aa0;
+                  margin-bottom: 8px;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                }
+                
+                .subheader {
+                  font-size: 12px;
+                  color: #666;
+                  margin-bottom: 12px;
+                  font-style: italic;
+                }
+                
+                .token-number {
+                  font-size: 28px;
+                  font-weight: bold;
+                  color: #dc3545;
+                  background: #fff;
+                  border: 2px dashed #dc3545;
+                  border-radius: 6px;
+                  padding: 8px;
+                  margin: 12px 0;
+                  letter-spacing: 1px;
+                }
+                
+                .customer-info {
+                  background: #fff;
+                  border-radius: 4px;
+                  padding: 8px;
+                  margin: 8px 0;
+                  border-left: 4px solid #28a745;
+                }
+                
+                .info-row {
+                  display: flex;
+                  justify-content: space-between;
+                  margin: 4px 0;
+                  font-size: 11px;
+                }
+                
+                .info-label {
+                  font-weight: bold;
+                  color: #495057;
+                }
+                
+                .info-value {
+                  color: #212529;
+                  text-align: right;
+                  max-width: 60%;
+                  word-break: break-word;
+                }
+                
+                .priority-flags {
+                  margin: 8px 0;
+                }
+                
+                .priority-badge {
+                  display: inline-block;
+                  background: #ffc107;
+                  color: #212529;
+                  padding: 2px 6px;
+                  border-radius: 10px;
+                  font-size: 9px;
+                  font-weight: bold;
+                  margin: 2px;
+                }
+                
+                .footer {
+                  margin-top: 12px;
+                  padding-top: 8px;
+                  border-top: 1px solid #dee2e6;
+                  font-size: 9px;
+                  color: #6c757d;
+                }
+                
+                .thank-you {
+                  font-size: 10px;
+                  color: #28a745;
+                  font-weight: bold;
+                  margin-top: 6px;
+                }
                 
                 @media print {
-                  @page { size: 58mm auto; margin: 3mm; }
-                  body { width: 58mm; margin: 0; }
-                  h2 { font-size: 14px; margin: 4px 0; }
-                  .token { font-size: 20px; margin: 8px 0; }
-                  .details { font-size: 10px; margin: 2px 0; }
+                  @page {
+                    size: 58mm 120mm;
+                    margin: 1mm;
+                  }
+                  
+                  body {
+                    width: 56mm;
+                    margin: 0;
+                    padding: 1mm;
+                    background: white !important;
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                    font-size: 8pt;
+                    line-height: 1.2;
+                  }
+                  
+                  .token-container {
+                    border: 1px solid #000;
+                    background: white !important;
+                    box-shadow: none;
+                  }
+                  
+                  .header {
+                    font-size: 12px;
+                  }
+                  
+                  .subheader {
+                    font-size: 9px;
+                  }
+                  
+                  .token-number {
+                    font-size: 20px;
+                    background: white !important;
+                    border: 1px dashed #000;
+                  }
+                  
+                  .customer-info {
+                    background: white !important;
+                    border-left: 2px solid #000;
+                  }
+                  
+                  .info-row {
+                    font-size: 9px;
+                  }
+                  
+                  .priority-badge {
+                    background: #ccc !important;
+                    color: #000 !important;
+                    border: 1px solid #000;
+                  }
+                  
+                  .footer {
+                    font-size: 8px;
+                  }
+                  
+                  .thank-you {
+                    font-size: 9px;
+                  }
                 }
               </style>
             </head>
             <body>
-              <h2>Esca Shop Premium Eyewear</h2>
-              <div class="token">Token #${registeredCustomer.token_number.toString().padStart(3, '0')}</div>
-              <div class="details">OR: ${registeredCustomer.or_number}</div>
-              <div class="details">Customer: ${registeredCustomer.name}</div>
-              <div class="details">Date: ${new Date().toLocaleDateString()}</div>
-              <div class="details">Est. Time: ${typeof registeredCustomer.estimated_time === 'object' ? formatEstimatedTime(registeredCustomer.estimated_time) : registeredCustomer.estimated_time + ' minutes'}</div>
+              <div class="token-container">
+                <div class="header">Esca Shop Premium Eyewear</div>
+                <div class="subheader">Quality Vision Solutions</div>
+                
+                <div class="token-number">
+                  Token #${registeredCustomer.token_number.toString().padStart(3, '0')}
+                </div>
+                
+                <div class="customer-info">
+                  <div class="info-row">
+                    <span class="info-label">OR Number:</span>
+                    <span class="info-value">${registeredCustomer.or_number}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Customer:</span>
+                    <span class="info-value">${registeredCustomer.name}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Date:</span>
+                    <span class="info-value">${new Date().toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Est. Time:</span>
+                    <span class="info-value">${typeof registeredCustomer.estimated_time === 'object' ? formatEstimatedTime(registeredCustomer.estimated_time) : registeredCustomer.estimated_time + ' minutes'}</span>
+                  </div>
+                  ${registeredCustomer.distribution_info ? `
+                  <div class="info-row">
+                    <span class="info-label">Delivery:</span>
+                    <span class="info-value">${registeredCustomer.distribution_info}</span>
+                  </div>
+                  ` : ''}
+                </div>
+                
+                ${(registeredCustomer.priority_flags && 
+                   (registeredCustomer.priority_flags.senior_citizen || 
+                    registeredCustomer.priority_flags.pregnant || 
+                    registeredCustomer.priority_flags.pwd)) ? `
+                <div class="priority-flags">
+                  ${registeredCustomer.priority_flags.senior_citizen ? '<span class="priority-badge">SENIOR</span>' : ''}
+                  ${registeredCustomer.priority_flags.pregnant ? '<span class="priority-badge">PREGNANT</span>' : ''}
+                  ${registeredCustomer.priority_flags.pwd ? '<span class="priority-badge">PWD</span>' : ''}
+                </div>
+                ` : ''}
+                
+                <div class="footer">
+                  <div>Please keep this token for reference</div>
+                  <div>Queue status updates available at counter</div>
+                </div>
+                
+                <div class="thank-you">
+                  Thank you for choosing Esca Shop!
+                </div>
+              </div>
             </body>
           </html>
         `);
@@ -624,23 +859,12 @@ const CustomerManagement: React.FC = () => {
     if (!customerToDelete) return;
     
     try {
-      const response = await fetch(`/api/customers/${customerToDelete.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        }
-      });
-      
-      if (response.ok) {
-        setSuccessMessage(`Customer ${customerToDelete.name} has been deleted successfully`);
-        fetchCustomers();
-      } else {
-        const error = await response.json();
-        setErrorMessage(error.message || 'Failed to delete customer');
-      }
-    } catch (error) {
+      await apiDelete(`/customers/${customerToDelete.id}`);
+      setSuccessMessage(`Customer ${customerToDelete.name} has been deleted successfully`);
+      fetchCustomers();
+    } catch (error: any) {
       console.error('Error deleting customer:', error);
-      setErrorMessage('Failed to delete customer');
+      setErrorMessage(error.message || 'Failed to delete customer');
     }
     
     setShowDeleteDialog(false);
@@ -648,84 +872,252 @@ const CustomerManagement: React.FC = () => {
   };
 
   const handleExportCustomerFormat = async (customer: Customer, format: 'excel' | 'pdf' | 'sheets') => {
+    console.log('IMMEDIATE: Function called with:', { customerOrNumber: customer.or_number, format });
+    console.log('========== EXPORT STARTING ==========');
+    console.log(`EXPORT: Starting export for customer ${customer.or_number} in ${format.toUpperCase()} format`);
+    console.log('======================================');
+    
     try {
       if (format === 'sheets') {
         // Export to Google Sheets
-        const response = await fetch(`/api/customers/${customer.id}/export/sheets`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          },
-          body: JSON.stringify({ customer })
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          setSuccessMessage('Customer data exported to Google Sheets successfully!');
-        } else {
-          throw new Error('Failed to export to Google Sheets');
-        }
+        console.log(`[Export] Calling Google Sheets export API...`);
+        const response = await apiPost(`/customers/${customer.id}/export/sheets`, { customer });
+        const result = await parseApiResponse(response);
+        setSuccessMessage('Customer data exported to Google Sheets successfully!');
       } else {
-        // Export to Excel or PDF
-        const response = await fetch(`/api/customers/${customer.id}/export/${format}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        // Export to Excel or PDF using binary download
+        const exportUrl = `/customers/${customer.id}/export/${format}`;
+        console.log(`[Export] Calling binary export API: ${exportUrl}`);
+        
+        let response;
+        try {
+          response = await apiBinaryDownload(exportUrl, {
+            method: 'POST'
+          });
+          console.log(`[Export] Response received:`, {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            url: response.url,
+            type: response.type
+          });
+        } catch (fetchError) {
+          console.error(`[Export] Network error during fetch:`, fetchError);
+          throw new Error(`Network request failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown network error'}`);
+        }
+        
+        // Check for IDM interception first
+        if (response.statusText && response.statusText.includes('IDM')) {
+          console.log(`[Export] IDM interception detected: ${response.statusText}`);
+          setSuccessMessage(`Customer data exported successfully! Check your Downloads folder.`);
+          return;
+        }
+        
+        if (!response.ok) {
+          console.error(`[Export] Non-OK response:`, response.status, response.statusText);
+          const contentType = response.headers.get('content-type');
+          console.log(`[Export] Error response content-type:`, contentType);
+          
+          if (contentType && contentType.includes('application/json')) {
+            try {
+              const errorData = await response.json();
+              console.error(`[Export] JSON error response:`, errorData);
+              throw new Error(errorData.error || `Failed to export to ${format.toUpperCase()}`);
+            } catch (jsonError) {
+              console.error(`[Export] Failed to parse JSON error response:`, jsonError);
+              throw new Error(`Export failed with status ${response.status}: ${response.statusText}`);
+            }
+          } else {
+            // Try to get text response for debugging
+            try {
+              const textResponse = await response.text();
+              console.error(`[Export] Text error response:`, textResponse);
+              throw new Error(`Export failed with status ${response.status}: ${response.statusText}. Response: ${textResponse.substring(0, 200)}`);
+            } catch (textError) {
+              console.error(`[Export] Failed to read error response:`, textError);
+              throw new Error(`Export failed with status ${response.status}: ${response.statusText}`);
+            }
           }
+        }
+
+        // Log all response headers for debugging
+        console.log(`[Export] All response headers:`);
+        response.headers.forEach((value, key) => {
+          console.log(`[Export]   ${key}: ${value}`);
         });
         
-        if (response.ok) {
+        // Check if this might be intercepted by IDM or similar download managers
+        const contentDisposition = response.headers.get('content-disposition');
+        const contentType = response.headers.get('content-type');
+        const contentLength = response.headers.get('content-length');
+        
+        console.log(`[Export] Key headers:`, {
+          contentDisposition,
+          contentType,
+          contentLength
+        });
+        
+        // If we have proper file headers, assume the download is working even if blob is empty
+        const hasFileHeaders = contentDisposition && contentDisposition.includes('attachment');
+        const hasBinaryContentType = contentType && (
+          contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') ||
+          contentType.includes('application/pdf') ||
+          contentType.includes('application/octet-stream')
+        );
+        
+        console.log(`[Export] Header analysis:`, {
+          hasFileHeaders,
+          hasBinaryContentType
+        });
+        
+        try {
+          console.log(`[Export] Converting response to blob...`);
           const blob = await response.blob();
+          console.log(`[Export] Blob created:`, {
+            size: blob.size,
+            type: blob.type
+          });
+          
+          // If blob is empty but we have proper headers, it might be intercepted by download manager
+          if (blob.size === 0 && (hasFileHeaders || hasBinaryContentType)) {
+            console.log(`[Export] Download may have been intercepted by download manager (IDM, etc.)`);
+            setSuccessMessage(`Customer data exported successfully! Check your Downloads folder.`);
+            return;
+          }
+          
+          // If blob is empty and no proper headers, it's a real error
+          if (blob.size === 0) {
+            console.error(`[Export] Blob is empty and no file headers detected`);
+            throw new Error(`No data received for ${format.toUpperCase()} export`);
+          }
+          
+          // Normal browser download
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
           a.download = `customer-${customer.or_number}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+          document.body.appendChild(a);
           a.click();
+          document.body.removeChild(a);
           window.URL.revokeObjectURL(url);
           setSuccessMessage(`Customer data exported to ${format.toUpperCase()} successfully!`);
-        } else {
-          throw new Error(`Failed to export to ${format.toUpperCase()}`);
+        } catch (blobError) {
+          // If blob processing fails but we have file headers, assume download manager handled it
+          if (hasFileHeaders || hasBinaryContentType) {
+            console.log(`[Export] Blob processing failed, but download headers present - likely handled by download manager`);
+            setSuccessMessage(`Customer data export initiated successfully! Check your downloads folder.`);
+          } else {
+        console.error(`[Error] Blob processing failed:`, blobError);
+        throw new Error(`Unhandled export error for ${format.toUpperCase()}`);
+          }
         }
       }
     } catch (error) {
       console.error(`Error exporting customer to ${format}:`, error);
-      setErrorMessage(`Failed to export customer data to ${format.toUpperCase()}`);
+      // Only show error if it's a real error, not just a network/parsing issue
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        setErrorMessage(`Network error: Cannot connect to server. Please check if the backend is running.`);
+      } else {
+        setErrorMessage(`Failed to export customer data to ${format.toUpperCase()}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
     handleMenuClose();
   };
 
   const handleBulkExport = async (format: 'excel' | 'pdf' | 'sheets') => {
     try {
-      const response = await fetch(`/api/customers/export/${format}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        },
-        body: JSON.stringify({
+      if (format === 'sheets') {
+        // Export to Google Sheets
+        const response = await apiPost(`/customers/export/${format}`, {
           searchTerm,
           statusFilter,
           dateFilter
-        })
-      });
-      
-      if (response.ok) {
-        if (format === 'sheets') {
-          const result = await response.json();
-          setSuccessMessage('Data exported to Google Sheets successfully!');
-        } else {
+        });
+        const result = await parseApiResponse(response);
+        setSuccessMessage('Data exported to Google Sheets successfully!');
+      } else {
+        // Export to Excel or PDF using binary download
+        const response = await apiBinaryDownload(`/customers/export/${format}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            searchTerm,
+            statusFilter,
+            dateFilter
+          })
+        });
+        
+        // Check for IDM interception first
+        if (response.statusText && response.statusText.includes('IDM')) {
+          console.log(`[Bulk Export] IDM interception detected: ${response.statusText}`);
+          setSuccessMessage(`Bulk export initiated successfully! IDM is handling the download. Check your Downloads folder.`);
+          return;
+        }
+
+        if (!response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to export to ${format.toUpperCase()}`);
+          } else {
+            throw new Error(`Export failed with status ${response.status}: ${response.statusText}`);
+          }
+        }
+
+        // Check if this might be intercepted by IDM or similar download managers
+        const contentDisposition = response.headers.get('content-disposition');
+        const contentType = response.headers.get('content-type');
+        
+        // If we have proper file headers, assume the download is working even if blob is empty
+        const hasFileHeaders = contentDisposition && contentDisposition.includes('attachment');
+        const hasBinaryContentType = contentType && (
+          contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') ||
+          contentType.includes('application/pdf') ||
+          contentType.includes('application/octet-stream')
+        );
+        
+        try {
           const blob = await response.blob();
+          
+          // If blob is empty but we have proper headers, it might be intercepted by download manager
+          if (blob.size === 0 && (hasFileHeaders || hasBinaryContentType)) {
+            console.log(`[Bulk Export] Download may have been intercepted by download manager (IDM, etc.)`);
+            setSuccessMessage(`Bulk export initiated successfully! Check your downloads folder.`);
+            return;
+          }
+          
+          // If blob is empty and no proper headers, it's a real error
+          if (blob.size === 0) {
+            throw new Error(`No data received for ${format.toUpperCase()} export`);
+          }
+          
+          // Normal browser download
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
           a.download = `customers-export.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+          document.body.appendChild(a);
           a.click();
+          document.body.removeChild(a);
           window.URL.revokeObjectURL(url);
+          setSuccessMessage(`Data exported to ${format.toUpperCase()} successfully!`);
+        } catch (blobError) {
+          // If blob processing fails but we have file headers, assume download manager handled it
+          if (hasFileHeaders || hasBinaryContentType) {
+            console.log(`[Bulk Export] Blob processing failed, but download headers present - likely handled by download manager`);
+            setSuccessMessage(`Bulk export initiated successfully! Check your downloads folder.`);
+          } else {
+            throw blobError;
+          }
         }
       }
     } catch (error) {
       console.error('Error exporting customers:', error);
-      setErrorMessage('Failed to export customers data');
+      // Only show error if it's a real error, not just a network/parsing issue
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        setErrorMessage(`Network error: Cannot connect to server. Please check if the backend is running.`);
+      } else {
+        setErrorMessage(`Failed to export customers data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   };
 
@@ -773,6 +1165,39 @@ const CustomerManagement: React.FC = () => {
       'Cash': 'cash'
     };
     return normalizedModes[mode] || mode.toLowerCase();
+  };
+
+  // Helper function to get user-friendly field display names
+  const getFieldDisplayName = (fieldName: string): string => {
+    const fieldDisplayNames: { [key: string]: string } = {
+      'name': 'Customer Name',
+      'contact_number': 'Contact Number',
+      'email': 'Email Address',
+      'age': 'Age',
+      'address': 'Address',
+      'occupation': 'Occupation',
+      'distribution_info': 'Distribution Method',
+      'doctor_assigned': 'Doctor Assigned',
+      'prescription.od': 'Prescription OD (Right Eye)',
+      'prescription.os': 'Prescription OS (Left Eye)',
+      'prescription.ou': 'Prescription OU (Both Eyes)',
+      'prescription.pd': 'Prescription PD (Pupillary Distance)',
+      'prescription.add': 'Prescription ADD (Addition)',
+      'grade_type': 'Grade Type',
+      'lens_type': 'Lens Type',
+      'frame_code': 'Frame Code',
+      'estimated_time.days': 'Estimated Days',
+      'estimated_time.hours': 'Estimated Hours',
+      'estimated_time.minutes': 'Estimated Minutes',
+      'payment_info.mode': 'Payment Mode',
+      'payment_info.amount': 'Payment Amount',
+      'remarks': 'Remarks',
+      'priority_flags.senior_citizen': 'Senior Citizen Priority',
+      'priority_flags.pregnant': 'Pregnant Priority',
+      'priority_flags.pwd': 'PWD Priority',
+      'or_number': 'OR Number'
+    };
+    return fieldDisplayNames[fieldName] || fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
   const validateForm = useMemo(() => {
@@ -1087,6 +1512,8 @@ const CustomerManagement: React.FC = () => {
                       onChange={(e) => handleInputChange('name', e.target.value)}
                       fullWidth
                       required
+                      error={!!fieldErrors.name}
+                      helperText={fieldErrors.name || 'Enter customer\'s full name'}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
@@ -1096,6 +1523,8 @@ const CustomerManagement: React.FC = () => {
                       onChange={(e) => handleInputChange('contact_number', e.target.value)}
                       fullWidth
                       required
+                      error={!!fieldErrors.contact_number}
+                      helperText={fieldErrors.contact_number || 'Enter valid phone number'}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
@@ -1105,6 +1534,8 @@ const CustomerManagement: React.FC = () => {
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
                       fullWidth
+                      error={!!fieldErrors.email}
+                      helperText={fieldErrors.email || 'Enter valid email address (optional)'}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
@@ -1114,6 +1545,8 @@ const CustomerManagement: React.FC = () => {
                       onChange={(e) => handleInputChange('age', e.target.value)}
                       fullWidth
                       type="number"
+                      error={!!fieldErrors.age}
+                      helperText={fieldErrors.age || 'Enter age (1-120)'}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
@@ -1122,6 +1555,9 @@ const CustomerManagement: React.FC = () => {
                       value={formData.address}
                       onChange={(e) => handleInputChange('address', e.target.value)}
                       fullWidth
+                      required
+                      error={!!fieldErrors.address}
+                      helperText={fieldErrors.address || 'Enter complete address (10-500 characters)'}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
@@ -1133,7 +1569,7 @@ const CustomerManagement: React.FC = () => {
                     />
                   </Grid>
                   <Grid size={12}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!fieldErrors.distribution_info}>
                       <InputLabel>Distribution Method</InputLabel>
                       <Select
                         value={formData.distribution_info}
@@ -1143,6 +1579,11 @@ const CustomerManagement: React.FC = () => {
                           <MenuItem key={method.value} value={method.value}>{method.label}</MenuItem>
                         ))}
                       </Select>
+                      {fieldErrors.distribution_info && (
+                        <Box sx={{ color: 'error.main', fontSize: '0.75rem', mt: 0.5, px: 1.75 }}>
+                          {fieldErrors.distribution_info}
+                        </Box>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid size={12}>
@@ -1237,7 +1678,7 @@ const CustomerManagement: React.FC = () => {
                     />
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!fieldErrors.grade_type}>
                       <InputLabel>Grade Type</InputLabel>
                       <Select
                         value={formData.grade_type}
@@ -1247,10 +1688,15 @@ const CustomerManagement: React.FC = () => {
                           <MenuItem key={type} value={type}>{type}</MenuItem>
                         ))}
                       </Select>
+                      {fieldErrors.grade_type && (
+                        <Box sx={{ color: 'error.main', fontSize: '0.75rem', mt: 0.5, px: 1.75 }}>
+                          {fieldErrors.grade_type}
+                        </Box>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!fieldErrors.lens_type}>
                       <InputLabel>Lens Type</InputLabel>
                       <Select
                         value={formData.lens_type}
@@ -1260,6 +1706,11 @@ const CustomerManagement: React.FC = () => {
                           <MenuItem key={type} value={type}>{type}</MenuItem>
                         ))}
                       </Select>
+                      {fieldErrors.lens_type && (
+                        <Box sx={{ color: 'error.main', fontSize: '0.75rem', mt: 0.5, px: 1.75 }}>
+                          {fieldErrors.lens_type}
+                        </Box>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
@@ -1324,7 +1775,7 @@ const CustomerManagement: React.FC = () => {
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!fieldErrors['payment_info.mode']}>
                       <InputLabel>Payment Mode</InputLabel>
                       <Select
                         value={formData.payment_info.mode}
@@ -1334,6 +1785,11 @@ const CustomerManagement: React.FC = () => {
                           <MenuItem key={mode} value={mode}>{getPaymentModeLabel(mode)}</MenuItem>
                         ))}
                       </Select>
+                      {fieldErrors['payment_info.mode'] && (
+                        <Box sx={{ color: 'error.main', fontSize: '0.75rem', mt: 0.5, px: 1.75 }}>
+                          {fieldErrors['payment_info.mode']}
+                        </Box>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
@@ -1344,6 +1800,8 @@ const CustomerManagement: React.FC = () => {
                       fullWidth
                       type="number"
                       required
+                      error={!!fieldErrors['payment_info.amount']}
+                      helperText={fieldErrors['payment_info.amount'] || 'Enter payment amount in Pesos'}
                     />
                   </Grid>
                   <Grid size={12}>

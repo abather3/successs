@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { monitoringService } from '../services/monitoring';
 
 // Define standardized auth error types
 export class AuthError extends Error {
@@ -60,6 +61,16 @@ export const errorHandler = (
   // Handle AuthError instances
   if (error instanceof AuthError) {
     console.warn(`Auth error [${error.code}]: ${error.message}`);
+    
+    // Record error in monitoring service
+    monitoringService.recordError(error, {
+      endpoint: req.path,
+      method: req.method,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      code: error.code
+    });
+    
     res.status(error.statusCode).json({
       error: {
         code: error.code,
@@ -75,6 +86,17 @@ export const errorHandler = (
       error instanceof jwt.NotBeforeError) {
     const authError = getJwtErrorType(error);
     console.warn(`JWT error [${authError.code}]: ${authError.message}`);
+    
+    // Record JWT error in monitoring service
+    monitoringService.recordError(authError, {
+      endpoint: req.path,
+      method: req.method,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      code: authError.code,
+      type: 'JWT_ERROR'
+    });
+    
     res.status(authError.statusCode).json({
       error: {
         code: authError.code,
@@ -86,6 +108,17 @@ export const errorHandler = (
 
   // Handle other errors
   console.error('Unhandled error:', error);
+  
+  // Record unhandled error in monitoring service
+  monitoringService.recordError(error, {
+    endpoint: req.path,
+    method: req.method,
+    userAgent: req.get('User-Agent'),
+    ip: req.ip,
+    type: 'UNHANDLED_ERROR',
+    stack: error.stack
+  });
+  
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',

@@ -18,7 +18,7 @@
 
 // Configuration - Update these values as needed
 const CONFIG = {
-  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID_HERE', // Replace with your Google Sheets ID
+  SPREADSHEET_ID: '1EQoJp1fjxMJc3L54JA5hKWHkm-K36vg81YyPv4cCIBE', // Google Sheets ID from backend config
   SHEET_NAME: 'Customer Data', // Same sheet for both single and bulk exports
   BULK_SHEET_NAME: 'Customer Data', // Use same sheet as single exports
   TIMEZONE: 'Asia/Manila' // Adjust timezone as needed

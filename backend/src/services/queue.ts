@@ -285,6 +285,22 @@ export class QueueService {
         timestamp: new Date()
       });
 
+      // Record analytics event
+      try {
+        const priorityFlags = customer.priority_flags;
+        const isPriority = priorityFlags.senior_citizen || priorityFlags.pwd || priorityFlags.pregnant;
+        
+        await QueueAnalyticsService.recordQueueEvent({
+          customerId,
+          eventType: 'called',
+          counterId,
+          isPriority
+        });
+      } catch (analyticsError) {
+        console.error('Failed to record analytics event:', analyticsError);
+        // Don't fail the operation if analytics fails
+      }
+
       return customer;
     } catch (error) {
       await client.query('ROLLBACK');
@@ -387,54 +403,106 @@ export class QueueService {
   }
 
   static async cancelService(customerId: number, reason?: string): Promise<Customer> {
-    const query = `
-      UPDATE customers 
-      SET queue_status = 'cancelled', 
-          served_at = CURRENT_TIMESTAMP,
-          remarks = COALESCE(remarks || ' | ', '') || 'Cancelled: ' || COALESCE($2, 'No reason provided'),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, [customerId, reason]);
-
-    if (result.rows.length === 0) {
-      throw new Error('Customer not found');
-    }
-
-    const customer = {
-      ...result.rows[0],
-      prescription: typeof result.rows[0].prescription === 'string' ? JSON.parse(result.rows[0].prescription) : result.rows[0].prescription,
-      payment_info: typeof result.rows[0].payment_info === 'string' ? JSON.parse(result.rows[0].payment_info) : result.rows[0].payment_info,
-      priority_flags: typeof result.rows[0].priority_flags === 'string' ? JSON.parse(result.rows[0].priority_flags) : result.rows[0].priority_flags,
-    };
-
-    // Emit real-time update
-    await WebSocketService.emitQueueUpdate({
-      type: 'customer_cancelled',
-      customer,
-      reason,
-      timestamp: new Date()
-    });
-
-    // Record analytics event
+    const client = await pool.connect();
+    
     try {
-      const priorityFlags = customer.priority_flags;
-      const isPriority = priorityFlags.senior_citizen || priorityFlags.pwd || priorityFlags.pregnant;
+      await client.query('BEGIN');
       
-      await QueueAnalyticsService.recordQueueEvent({
-        customerId,
-        eventType: 'cancelled',
-        isPriority,
-        reason
-      });
-    } catch (analyticsError) {
-      console.error('Failed to record analytics event:', analyticsError);
-      // Don't fail the operation if analytics fails
-    }
+      // Get customer information before cancelling
+      const customerQuery = `
+        SELECT * FROM customers WHERE id = $1
+      `;
+      const customerResult = await client.query(customerQuery, [customerId]);
+      
+      if (customerResult.rows.length === 0) {
+        throw new Error('Customer not found');
+      }
+      
+      const originalCustomer = customerResult.rows[0];
+      
+      // Update customer status to cancelled
+      const updateQuery = `
+        UPDATE customers 
+        SET queue_status = 'cancelled', 
+            served_at = CURRENT_TIMESTAMP,
+            remarks = COALESCE(remarks || ' | ', '') || 'Cancelled: ' || COALESCE($2, 'No reason provided'),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING *
+      `;
 
-    return customer;
+      const updateResult = await client.query(updateQuery, [customerId, reason]);
+      const updatedCustomer = updateResult.rows[0];
+
+      // Archive cancelled customer to customer_history table immediately
+      const archiveQuery = `
+        INSERT INTO customer_history (
+          original_customer_id, name, email, phone, queue_status, 
+          token_number, priority_flags, created_at, served_at, 
+          counter_id, estimated_wait_time, archive_date
+        ) VALUES (
+          $1, $2, $3, $4, 'cancelled', $5, $6, $7, CURRENT_TIMESTAMP, 
+          NULL, 0, CURRENT_DATE
+        )
+        ON CONFLICT (original_customer_id, archive_date) 
+        DO UPDATE SET
+          queue_status = 'cancelled',
+          served_at = CURRENT_TIMESTAMP,
+          counter_id = NULL
+      `;
+      
+      await client.query(archiveQuery, [
+        originalCustomer.id,
+        originalCustomer.name,
+        originalCustomer.email,
+        originalCustomer.contact_number,
+        originalCustomer.token_number,
+        originalCustomer.priority_flags,
+        originalCustomer.created_at
+      ]);
+      
+      await client.query('COMMIT');
+
+      const customer = {
+        ...updatedCustomer,
+        prescription: typeof updatedCustomer.prescription === 'string' ? JSON.parse(updatedCustomer.prescription) : updatedCustomer.prescription,
+        payment_info: typeof updatedCustomer.payment_info === 'string' ? JSON.parse(updatedCustomer.payment_info) : updatedCustomer.payment_info,
+        priority_flags: typeof updatedCustomer.priority_flags === 'string' ? JSON.parse(updatedCustomer.priority_flags) : updatedCustomer.priority_flags,
+      };
+
+      // Emit real-time update
+      await WebSocketService.emitQueueUpdate({
+        type: 'customer_cancelled',
+        customer,
+        reason,
+        timestamp: new Date()
+      });
+
+      // Record analytics event
+      try {
+        const priorityFlags = customer.priority_flags;
+        const isPriority = priorityFlags.senior_citizen || priorityFlags.pwd || priorityFlags.pregnant;
+        
+        await QueueAnalyticsService.recordQueueEvent({
+          customerId,
+          eventType: 'cancelled',
+          isPriority,
+          reason
+        });
+      } catch (analyticsError) {
+        console.error('Failed to record analytics event:', analyticsError);
+        // Don't fail the operation if analytics fails
+      }
+
+      console.log(`Customer ${customer.name} (ID: ${customerId}) cancelled and archived to customer_history`);
+      return customer;
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async getPosition(customerId: number): Promise<number | null> {
@@ -827,14 +895,29 @@ export class QueueService {
     try {
       await client.query('BEGIN');
 
+      // Get all customers that will be affected by reset (for archiving)
+      // Include completed customers from today that haven't been archived yet
+      const affectedCustomersQuery = `
+        SELECT * FROM customers 
+        WHERE queue_status IN ('waiting', 'serving', 'processing')
+        OR (queue_status = 'completed' AND DATE(created_at) = CURRENT_DATE AND 
+            id NOT IN (
+              SELECT original_customer_id FROM customer_history 
+              WHERE archive_date = CURRENT_DATE
+            ))
+      `;
+      const affectedCustomersResult = await client.query(affectedCustomersQuery);
+      const affectedCustomers = affectedCustomersResult.rows;
+
       // Get count of customers before reset
       const countQuery = `
         SELECT 
           COUNT(*) FILTER (WHERE queue_status = 'waiting') as waiting_count,
           COUNT(*) FILTER (WHERE queue_status = 'serving') as serving_count,
+          COUNT(*) FILTER (WHERE queue_status = 'processing') as processing_count,
           COUNT(*) FILTER (WHERE queue_status = 'completed') as completed_count
         FROM customers
-        WHERE queue_status IN ('waiting', 'serving', 'completed')
+        WHERE queue_status IN ('waiting', 'serving', 'processing', 'completed')
       `;
       const countResult = await client.query(countQuery);
       const counts = countResult.rows[0];
@@ -843,6 +926,7 @@ export class QueueService {
       const cancelQuery = `
         UPDATE customers 
         SET queue_status = 'cancelled', 
+            served_at = CURRENT_TIMESTAMP,
             remarks = COALESCE(remarks || ' | ', '') || 'Queue Reset: ' || COALESCE($1, 'Queue reset by admin'),
             updated_at = CURRENT_TIMESTAMP
         WHERE queue_status = 'waiting'
@@ -861,6 +945,63 @@ export class QueueService {
         RETURNING id, name
       `;
       const completeResult = await client.query(completeQuery);
+
+      // Complete all processing customers (they are being processed, so mark as completed)
+      const completeProcessingQuery = `
+        UPDATE customers 
+        SET queue_status = 'completed', 
+            served_at = CURRENT_TIMESTAMP,
+            remarks = COALESCE(remarks || ' | ', '') || 'Queue Reset: Processing completed during reset',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE queue_status = 'processing'
+        RETURNING id, name
+      `;
+      const completeProcessingResult = await client.query(completeProcessingQuery);
+
+      // Archive all affected customers to customer_history table
+      console.log(`[QUEUE_RESET] Found ${affectedCustomers.length} customers to archive:`, affectedCustomers.map(c => ({ id: c.id, name: c.name, status: c.queue_status })));
+      
+      if (affectedCustomers.length === 0) {
+        console.log(`[QUEUE_RESET] No active customers found to archive. Reset completed with no archival needed.`);
+      }
+      
+      for (const customer of affectedCustomers) {
+        const finalStatus = customer.queue_status === 'waiting' ? 'cancelled' : 'completed';
+        console.log(`Archiving customer ${customer.id} with status ${finalStatus}...`);
+        
+        try {
+          const archiveQuery = `
+            INSERT INTO customer_history (
+              original_customer_id, name, email, phone, queue_status, 
+              token_number, priority_flags, created_at, served_at, 
+              counter_id, estimated_wait_time, archive_date
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, 
+              NULL, 0, CURRENT_DATE
+            )
+            ON CONFLICT (original_customer_id, archive_date) 
+            DO UPDATE SET
+              queue_status = $5,
+              served_at = CURRENT_TIMESTAMP,
+              counter_id = NULL
+          `;
+          
+          await client.query(archiveQuery, [
+            customer.id,
+            customer.name,
+            customer.email,
+            customer.contact_number,
+            finalStatus, // Either 'cancelled' or 'completed' based on original status
+            customer.token_number,
+            customer.priority_flags,
+            customer.created_at
+          ]);
+          console.log(`Successfully archived customer ${customer.id}.`);
+        } catch (archiveError) {
+          console.error(`Failed to archive customer ${customer.id} during queue reset:`, archiveError);
+          // Don't fail the entire reset if archiving fails
+        }
+      }
 
       // Clear all counters
       await client.query(
@@ -881,13 +1022,53 @@ export class QueueService {
         }
       }
 
+      // Record analytics events for completed customers (serving)
+      for (const customer of completeResult.rows) {
+        try {
+          await QueueAnalyticsService.recordQueueEvent({
+            customerId: customer.id,
+            eventType: 'served',
+            isPriority: false, // We can't determine priority easily here
+            reason: `Queue reset: Service completed during reset`
+          });
+        } catch (analyticsError) {
+          console.error('Failed to record analytics event for completed customer:', analyticsError);
+        }
+      }
+
+      // Record analytics events for completed customers (processing)
+      for (const customer of completeProcessingResult.rows) {
+        try {
+          await QueueAnalyticsService.recordQueueEvent({
+            customerId: customer.id,
+            eventType: 'served',
+            isPriority: false, // We can't determine priority easily here
+            reason: `Queue reset: Processing completed during reset`
+          });
+        } catch (analyticsError) {
+          console.error('Failed to record analytics event for completed processing customer:', analyticsError);
+        }
+      }
+
       await client.query('COMMIT');
 
+      const totalCompleted = completeResult.rows.length + completeProcessingResult.rows.length;
       const result = {
         cancelled: cancelResult.rows.length,
-        completed: completeResult.rows.length,
-        message: `Queue reset: ${cancelResult.rows.length} customers cancelled, ${completeResult.rows.length} customers completed`
+        completed: totalCompleted,
+        message: `Queue reset: ${cancelResult.rows.length} customers cancelled, ${totalCompleted} customers completed and archived to history`
       };
+
+      console.log(`Queue reset by admin ${adminId}: ${affectedCustomers.length} customers archived to customer_history`);
+
+      // Force analytics update after queue reset
+      try {
+        await QueueAnalyticsService.updateHourlyAnalytics();
+        await QueueAnalyticsService.updateDailySummary();
+        console.log('Analytics updated after queue reset');
+      } catch (analyticsError) {
+        console.error('Failed to update analytics after queue reset:', analyticsError);
+      }
 
       // Emit real-time update
       await WebSocketService.emitQueueUpdate({

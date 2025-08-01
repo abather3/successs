@@ -146,7 +146,13 @@ const QueueAnalyticsDashboard: React.FC = () => {
         endDate: dateRange.end
       });
 
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      // Use proper API base URL detection
+      const getApiBaseUrl = () => {
+        const currentLocation = window.location;
+        const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+        return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+      };
+      const API_BASE_URL = getApiBaseUrl();
       const response = await fetch(`${API_BASE_URL}/analytics/dashboard?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
@@ -180,7 +186,13 @@ const QueueAnalyticsDashboard: React.FC = () => {
         limit: '50'
       });
 
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      // Use proper API base URL detection
+      const getApiBaseUrl = () => {
+        const currentLocation = window.location;
+        const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+        return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+      };
+      const API_BASE_URL = getApiBaseUrl();
       const response = await fetch(`${API_BASE_URL}/analytics/queue-activities?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
@@ -219,7 +231,13 @@ const QueueAnalyticsDashboard: React.FC = () => {
         format: exportFormat
       });
 
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      // Use proper API base URL detection
+      const getApiBaseUrl = () => {
+        const currentLocation = window.location;
+        const isNginxProxy = currentLocation.port === '80' || currentLocation.port === '' || currentLocation.port === undefined;
+        return isNginxProxy ? '/api' : (process.env.REACT_APP_API_URL || '/api');
+      };
+      const API_BASE_URL = getApiBaseUrl();
       const response = await fetch(`${API_BASE_URL}/analytics/export?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
