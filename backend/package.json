@@ -6,7 +6,7 @@
     "build": "tsc",
     "build:prod": "npx tsc -p tsconfig.prod.json",
     "dev": "nodemon src/index.ts",
-    "start": "npm run migrate && node dist/index.js",
+    "start": "npm run build && npm run migrate && node dist/index.js",
     "start:staging": "npm run build:prod && npm run migrate && node dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",

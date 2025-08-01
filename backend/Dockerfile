@@ -30,6 +30,13 @@ RUN mkdir -p logs uploads dist
 EXPOSE 5000
 CMD ["npm", "run", "dev"]
 
+# Build stage
+FROM base AS build
+ENV NODE_ENV=development
+RUN npm install
+COPY . .
+RUN npm run build
+
 # Production dependencies stage
 FROM base AS production-deps
 ENV NODE_ENV=production
@@ -42,8 +49,10 @@ ENV NODE_ENV=production
 # Copy production dependencies
 COPY --from=production-deps /app/node_modules ./node_modules
 
-# Copy application code (including any existing dist folder)
-COPY . .
+# Copy built application
+COPY --from=build /app/dist ./dist
+COPY package*.json ./
+COPY src/migrate.ts ./src/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/logs /app/uploads /app/dist && \

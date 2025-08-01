@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm run build"
+buildCommand = "npm ci && npm run build"
 
 [deploy]
 startCommand = "npx serve -s build -l 3000"
@@ -10,3 +10,4 @@ restartPolicyType = "ON_FAILURE"
 
 [env]
 NODE_ENV = "production"
+NODE_VERSION = "20"
