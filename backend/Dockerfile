@@ -1,44 +1,29 @@
-# Simplified single-stage Docker build for Railway
+# Minimal Railway Docker build
 FROM node:20-alpine
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
-RUN apk add --no-cache \
-    curl \
-    postgresql-client \
-    tzdata
+RUN apk add --no-cache curl postgresql-client tzdata
 
-# Copy package files
+# Copy package files and install dependencies
 COPY package*.json ./
+RUN npm ci --only=production
 
-# Install all dependencies (including dev for build)
-RUN npm install
-
-# Copy all source files
+# Copy source and build
 COPY . .
+RUN npm install typescript && npm run build
 
-# Build the TypeScript application
-RUN npm run build
-
-# Remove dev dependencies to reduce image size
-RUN npm prune --production
-
-# Set up Railway-compatible port
-ENV PORT=5000
+# Set up environment
 ENV NODE_ENV=production
+ENV PORT=5000
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/logs /app/uploads /app/dist && \
-    chown -R node:node /app/logs /app/uploads /app/dist
+# Create directories
+RUN mkdir -p logs uploads dist
 
-# Switch to non-root user
-USER node
-
-# Health check with dynamic port
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-5000}/health || exit 1
+    CMD curl -f http://localhost:$PORT/health || exit 1
 
 EXPOSE $PORT
 CMD ["npm", "start"]
