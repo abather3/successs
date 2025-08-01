@@ -1,4 +1,4 @@
-# Production Railway Docker deployment - No build phase
+# Production Railway Docker deployment - Direct start
 FROM node:20-alpine
 
 WORKDIR /app
@@ -25,4 +25,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:$PORT/health || exit 1
 
 EXPOSE $PORT
-CMD ["npm", "run", "start:prod"]
+
+# Direct start without migrations for now
+CMD ["npm", "run", "start:railway"]
