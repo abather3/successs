@@ -1,0 +1,28 @@
+# Minimal test Dockerfile for Railway deployment debugging
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache curl
+
+# Copy just package.json first to test dependency installation
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --omit=dev
+
+# Test if we can copy the dist folder
+COPY dist ./dist
+
+# Simple test
+RUN ls -la dist/
+
+# Set environment
+ENV NODE_ENV=production
+ENV PORT=5000
+
+EXPOSE $PORT
+
+# Simple start command
+CMD ["node", "dist/index.js"]
