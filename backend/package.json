@@ -8,6 +8,7 @@
     "dev": "nodemon src/index.ts",
     "start": "npm run build && npm run migrate && node dist/index.js",
     "start:staging": "npm run build:prod && npm run migrate && node dist/index.js",
+    "start:prod": "npm run migrate && node dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

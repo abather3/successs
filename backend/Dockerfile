@@ -1,4 +1,4 @@
-# Pre-built Railway Docker deployment
+# Production Railway Docker deployment - No build phase
 FROM node:20-alpine
 
 WORKDIR /app
@@ -12,8 +12,6 @@ RUN npm ci --omit=dev
 
 # Copy pre-built application files
 COPY dist ./dist
-COPY src ./src
-COPY tsconfig*.json ./
 
 # Set up environment
 ENV NODE_ENV=production
@@ -27,4 +25,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:$PORT/health || exit 1
 
 EXPOSE $PORT
-CMD ["npm", "start"]
+CMD ["npm", "run", "start:prod"]
