@@ -12,7 +12,8 @@ RUN npm ci --only=production
 
 # Copy source and build
 COPY . .
-RUN npm install typescript && npx tsc
+# Install dev dependencies needed for build, then build
+RUN npm install typescript @types/node && npx tsc -p tsconfig.json
 
 # Set up environment
 ENV NODE_ENV=production
