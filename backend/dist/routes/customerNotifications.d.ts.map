@@ -1,0 +1,1 @@
+{"version":3,"file":"customerNotifications.d.ts","sourceRoot":"","sources":["../../src/routes/customerNotifications.ts"],"names":[],"mappings":"AAGA,OAAgB,EAAE,MAAM,EAAY,MAAM,SAAS,CAAC;AACpD,OAAO,EAA+B,wBAAwB,EAAE,MAAM,yCAAyC,CAAC;AAKhH,QAAA,MAAM,MAAM,EAAE,MAAiB,CAAC;AAgPhC;;;;GAIG;AACH,wBAAsB,uCAAuC,CAC3D,YAAY,EAAE,wBAAwB,GACrC,OAAO,CAAC,IAAI,CAAC,CAcf;AAED,eAAe,MAAM,CAAC"}
