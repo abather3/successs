@@ -139,7 +139,7 @@ frontend/.env
 frontend/coverage/
 
 # Backend specific
-backend/dist/
+# backend/dist/  # Temporarily commented out for Railway deployment
 backend/.env
 backend/coverage/
 
