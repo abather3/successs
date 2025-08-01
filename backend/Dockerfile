@@ -1,5 +1,5 @@
-# Multi-stage Docker build for Backend
-FROM node:20-alpine AS base
+# Simplified single-stage Docker build for Railway
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
@@ -13,50 +13,21 @@ RUN apk add --no-cache \
 # Copy package files
 COPY package*.json ./
 
-# Development stage
-FROM base AS development
-ENV NODE_ENV=development
+# Install all dependencies (including dev for build)
 RUN npm install
-# Copy all necessary files
-COPY src ./src
-COPY tsconfig.json ./
-COPY nodemon.json ./
-COPY jest.config.js ./jest.config.js
-COPY .env.example ./.env.example
-# Copy package-scripts if it exists
-COPY package-scripts.json ./package-scripts.json
-# Create necessary directories
-RUN mkdir -p logs uploads dist
-EXPOSE 5000
-CMD ["npm", "run", "dev"]
 
-# Build stage
-FROM base AS build
-ENV NODE_ENV=development
-RUN npm install
+# Copy all source files
 COPY . .
+
+# Build the TypeScript application
 RUN npm run build
 
-# Production dependencies stage
-FROM base AS production-deps
-ENV NODE_ENV=production
-RUN npm install --omit=dev && npm cache clean --force
-
-# Production stage
-FROM base AS production
-ENV NODE_ENV=production
-
-# Copy production dependencies
-COPY --from=production-deps /app/node_modules ./node_modules
-
-# Copy built application and necessary files
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/src ./src
-COPY --from=build /app/tsconfig*.json ./
+# Remove dev dependencies to reduce image size
+RUN npm prune --production
 
 # Set up Railway-compatible port
 ENV PORT=5000
+ENV NODE_ENV=production
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/logs /app/uploads /app/dist && \
