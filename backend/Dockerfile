@@ -7,11 +7,11 @@ WORKDIR /app
 RUN apk add --no-cache curl postgresql-client tzdata
 
 # Copy package files and install production dependencies
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
 # Copy pre-built application files
-COPY dist ./dist
+COPY backend/dist ./dist
 
 # Set up environment
 ENV NODE_ENV=production
